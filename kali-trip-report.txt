@@ -1,0 +1,809 @@
+================================================================================
+ XSIEM — PROJECT TRIP REPORT
+ A complete, factual context document for the whole project.
+ Written so that an AI assistant (or a new contributor) can understand the
+ system end to end and produce accurate project documentation from it.
+================================================================================
+
+HOW TO USE THIS FILE
+  Read it top to bottom. Every fact below was measured on the running system,
+  not assumed. Where a number could change while the lab is running (alert
+  counts, timestamps) it is marked as "at time of writing". Section 13 is where
+  the Linux side appends its half. Do not delete any section; extend them.
+
+
+================================================================================
+SECTION 0 — THE ASSIGNMENT BRIEF (as given by the project owner)
+================================================================================
+
+The owner (a final-year B.Tech Cyber Security student) asked for the following,
+in their own terms. This is the requirement set the project is built to satisfy.
+
+ARCHITECTURE
+  - Kali Linux VM: the authorised attacker / test machine.
+  - Windows 11: the monitored endpoint.
+  - Linux VM: the XSIEM services — Wazuh, OpenSearch, FastAPI and React,
+    depending on what is already deployed.
+
+  The owner asked: "First, inspect this Windows environment. Identify the
+  Windows version, administrator privileges, network interfaces and IP
+  addresses, installed Wazuh components, and connectivity to the Linux VM.
+  Then: (1) determine whether the Wazuh agent is installed and, if not, guide
+  the installation of the official Windows Wazuh agent; (2) identify the Linux
+  VM's reachable IP address and determine the correct Wazuh manager address from
+  the existing deployment — do not guess the IP or port; (3) configure the
+  Windows Wazuh agent to connect to the actual manager, using the official
+  configuration method; (4) start the agent and verify its connection and event
+  collection; (5) verify that Windows security events can be collected and
+  forwarded to XSIEM; (6) report the exact configuration changes, commands
+  executed, connection status, and any remaining steps."
+
+SAFETY CONSTRAINTS THE OWNER SET (all were honoured)
+  - Inspect before modifying anything.
+  - Ask for approval before installing software, changing firewall rules, or
+    modifying system configuration.
+  - Do not disable Windows Defender or other security controls.
+  - Do not expose services to the public internet.
+  - Do not run destructive commands or launch attacks.
+  - Never invent IP addresses, credentials, or successful connection results.
+  - "Only touch this Windows machine. Never try to change the Kali side."
+  - Do not create additional privileged accounts beyond what was asked.
+
+THE OWNER'S SPECIFIC WINDOWS REQUIREMENTS
+  - Install the Wazuh agent 4.9.2 from the MSI served by the Kali VM's file
+    server. Manager address 192.168.49.128; enrollment server 192.168.49.128
+    (authd on TCP 1515); event channel TCP 1514, explicitly NOT UDP. Agent name
+    "win-target", agent group "default". Enrollment password: none, because the
+    manager's authd runs with <use_password>no</use_password>; if the installer
+    insisted on one, "xsiem-lab" was to be used and reported. The manager uses a
+    self-signed CA: rootCA.pem must be trusted, imported into
+    Cert:\LocalMachine\Root AND placed at
+    C:\Program Files (x86)\ossec-agent\rootCA.pem, which is the path the agent's
+    <server_ca_path> enrollment option points at. The deployment's own
+    Install-WazuhAgent.ps1 already does the CA import + silent install +
+    service start + verification, and it was preferred over a hand-rolled
+    install, with its four steps kept intact.
+
+  - Enable the Windows audit policies. The owner stressed this is "the part that
+    is easy to miss and it is essential — without it the agent connects fine
+    but produces zero authentication events, and the whole lab shows no alerts."
+    The specified subcategories: Logon, Logoff, Other Account Logon Events,
+    Account Lockout, Security Group Management, Other Account Management Events.
+    These unlock 4625 (failed logon) and 4732 (member added to a group), which
+    are what the brute-force and privilege-escalation SIEM rules are built on.
+
+  - Open the firewall for the authorised test traffic, scoped to 192.168.49.128
+    only: RDP 3389, SMB 445, SSH 22. Enable the OpenSSH Server capability, start
+    sshd, set it to Automatic. "Do NOT open RDP/SMB to the whole internet."
+    Outbound to 192.168.49.128:1514/1515 must stay allowed — the agent dials
+    out.
+
+  - Make the agent survive a reboot: Set-Service WazuhSvc -StartupType Automatic.
+
+  - Create one throwaway local account for the test traffic and report the name.
+    Do not give it a privileged group yet. The privilege-escalation test
+    (adding a user to the Administrators group) is a deliberate detection test
+    the owner runs later from the Kali side, so it must not be pre-staged.
+
+THE OWNER'S VERIFICATION LIST
+  1. Service state and agent key: Get-Service WazuhSvc, and the contents of
+     client.keys — "a real non-empty key (not the placeholder)".
+  2. The agent's <client> block, to confirm it points at the manager and uses
+     TCP 1514.
+  3. Connectivity: Test-NetConnection to 1514 and 1515.
+  4. Proof the audit policies produce events: a deliberate failed logon and a
+     4625 event, plus auditpol /get output.
+  5. Hostname and the IP this machine has as seen from Kali — must be reachable
+     as 192.168.49.1.
+  6. Any errors from the agent log.
+
+REPORT FORMAT REQUESTED BY THE OWNER
+  STATUS: OK | PARTIAL | FAILED
+  HOSTNAME / IP as seen from Kali:
+  AGENT SERVICE: <state>   ENROLLED: <yes/no>   AGENT KEY (last 16 chars): <...>
+  MANAGER BLOCK: <the <client> block>
+  CONNECTIVITY 1514 / 1515: pass/fail
+  AUDIT POLICIES: <auditpol /get output>
+  4625 EVENT SEEN: yes/no (+ timestamp)
+  FIREWALL RULES ADDED: <list>
+  OPENSSH: enabled/disabled
+  TEST ACCOUNT: <name>
+  ERRORS FROM AGENT LOG: <anything, or "none">
+  NOTES / BLOCKERS: <anything you could not do>
+
+THE OWNER'S LATER ADDITIONS
+  - "Enable the Windows audit policies… is the part that is easy to miss."
+  - "Make it interactive menu-driven, with configurable payloads, for various
+    severities (low, medium, high)."
+  - "I want to upload it to GitHub because my friend, who is working on the
+    other half of the project, wants to make a document."
+  - "All I want to do is have Claude understand the context of the entire
+    project and make proper documentation, which I can submit for the
+    assignment."
+  - Publishing decision, stated by the owner: the repository is to be PUBLIC.
+    "There is no need to push large files such as the Kali Linux image or any
+    kind of Docker information. Just push out the other things." And: "Make
+    sure nothing is leaked."
+
+
+================================================================================
+SECTION 1 — WHAT THE PROJECT IS
+================================================================================
+
+XSIEM is a complete, working SIEM (Security Information and Event Management)
+pipeline built as a two-machine authorised home lab. It is not a simulation and
+not a mock-up: a real Wazuh manager collects real Windows security events from
+a real Windows endpoint over a real TLS/AES channel, indexes them in
+OpenSearch, and serves them through a FastAPI backend to a React dashboard
+that an analyst watches in real time.
+
+The project has three moving parts:
+
+  1. A MONITORED ENDPOINT (Windows 11) that produces security telemetry and
+     nothing else. It is the "patient".
+
+  2. A COLLECTION AND ANALYSIS STACK (Kali Linux, Docker) that receives the
+     telemetry, classifies it with a Wazuh ruleset, indexes it, and presents
+     it. It is the "hospital".
+
+  3. AN ADVERSARIAL COMPONENT (the same Kali VM) that generates attacks
+     against the endpoint so that detection can be demonstrated and proved
+     rather than asserted. It is the "disease".
+
+A menu-driven payload tool on the server side lets an operator request a
+specific class of detection on demand — low, medium or high severity — so the
+whole pipeline can be exercised live in front of an audience.
+
+The educational point of the project is not "we installed Wazuh". It is that a
+SIEM is a one-way data pipeline with a specific trust model, and that making it
+correct required understanding and fixing six genuine defects along the way.
+Those defects are documented in Section 7 and they are the most valuable
+content in the project.
+
+
+================================================================================
+SECTION 2 — TOPOLOGY AND ROLES
+================================================================================
+
+TWO VIRTUAL MACHINES, ONE VMWARE NAT SEGMENT (192.168.49.0/24)
+
+  Windows 11 Pro  —  DESKTOP-GUSU8GP  —  192.168.49.1
+    VMware Network Adapter VMnet8, /24. Host machine for the whole lab.
+    Also: 192.168.233.1 (VMnet1 host-only), 172.16.246.113 (Wi-Fi, campus
+    network), 172.30.144.1 (WSL virtual adapter).
+    Physical host: HP Victus 16.1" Gaming Laptop, 16 GB RAM, VMware Workstation.
+
+  Kali Linux (Kali Rolling 2026.2)  —  192.168.49.128
+    VMware guest, NAT on VMnet8. DHCP lease confirms the address and the MAC
+    00:0c:29:36:d1:9f. Runs the Wazuh manager in Docker plus OpenSearch, the
+    FastAPI backend, the React dashboard and a plain-HTTP file server. It is
+    also the attacker host.
+
+  THE ONE ARCHITECTURAL RULE
+    The endpoint only ever dials out. The manager never connects into the
+    endpoint. This is the defining property of the design and it is preserved
+    in the cloud equivalent (see Section 9). The only inbound rules on the
+    Windows host exist so the attacker can reach it for authorised testing, and
+    they are scoped to 192.168.49.128 alone.
+
+  NOTE ON THE KALI VM AND BOOT
+    The Kali VM does not auto-start with the Windows host. After a Windows
+    reboot it must be started manually:
+        "C:\Program Files\VMware\VMware Workstation\vmrun.exe" start \
+            "C:\Kali Linux Image\kali-linux-2026.2-vmware-amd64.vmwarevm\kali-linux-2026.2-vmware-amd64.vmx" nogui
+    For an unattended lab, enable "start with host" in VMware.
+
+
+================================================================================
+SECTION 3 — DATA FLOW, STEP BY STEP
+================================================================================
+
+STEP 1 — INSTALL AND TRUST
+  The MSI, the CA and the install script are distributed by a plain-HTTP file
+  server on the Kali VM (port 8080) so the endpoint can pull them:
+      http://192.168.49.128:8080/wazuh-agent-4.9.2-1.msi
+      http://192.168.49.128:8080/rootCA.pem
+      http://192.168.49.128:8080/Install-WazuhAgent.ps1
+  The manager's self-signed CA is imported into Cert:\LocalMachine\Root and a
+  copy is placed at C:\Program Files (x86)\ossec-agent\rootCA.pem, which is
+  where the agent's <server_ca_path> points. The agent is told the manager
+  address, the agent name and the group through the official MSI properties
+  (WAZUH_MANAGER, WAZUH_REGISTRATION_SERVER, WAZUH_REGISTRATION_CA,
+  WAZUH_AGENT_NAME, WAZUH_AGENT_GROUP).
+
+STEP 2 — ENABLE AUDITING
+  auditpol turns on the subcategories that cause Windows to WRITE the events.
+  Without this the agent is connected and silent.
+
+STEP 3 — EVENT GENERATION
+  Windows writes to its own event logs. Failed logon = 4625. Adding a user to a
+  group = 4732. New process = 4688. Scheduled task = 4698. Service installed =
+  7045 (System log).
+
+STEP 4 — ENROLMENT (TLS, TCP 1515) — happens once
+  The agent opens an outbound TLS connection to the manager's authd. The
+  certificate it presents is validated against the CA it was given. The manager
+  issues a shared key and the agent stores it in client.keys. The file holds
+  three fields: the agent id, the agent name, and a 64-character hex shared
+  key. That key IS the agent's identity to the manager and it is a secret — it
+  is gitignored and must never be committed.
+
+STEP 5 — EVENT SHIPPING (AES, TCP 1514) — forever after
+  On a timer (notify_time = 10 seconds) the agent dials out to 1514 and pushes
+  new events, encrypted with the shared key from step 4. No inbound port is
+  ever needed on the endpoint for telemetry.
+
+STEP 6 — NORMALISE AND INDEX
+  The manager applies the Wazuh ruleset. A raw 4625 becomes a classified alert
+  with a rule id, a level, a severity, a decoded description and an agent name.
+  Alerts are written to OpenSearch.
+
+STEP 7 — QUERY
+  The FastAPI backend queries OpenSearch and returns JSON:
+      GET /health
+      GET /api/alerts?limit=&severity=&search=
+      GET /api/agents
+      GET /api/stats
+      POST /api/test-email
+  The severity shown in the UI is derived from the Wazuh rule LEVEL, not from
+  Wazuh's own severity field: level >= 12 is high, 7 to 11 is medium, below 7
+  is low. (This mapping lives in the backend's main.py,
+  format_opensearch_alert().)
+
+STEP 8 — RENDER
+  The React app calls the backend at http://192.168.49.128:4000 and draws the
+  dashboard: severity cards, a timeline, a severity-split donut and a live
+  alert table.
+
+STEP 9 — RESPOND
+  The analyst sees the detection, opens the Logs or Investigation view, and
+  decides what to do.
+
+WHY TWO DIFFERENT PROTOCOLS FOR THE SAME DATA
+  Step 4 is a sensitive, one-time identity handshake, so it gets full TLS with
+  certificate validation. Step 5 is a repetitive firehose of telemetry, so it
+  uses a cheap symmetric cipher (AES) with a pre-shared key. This is the same
+  split seen in the cloud: certificate-based mTLS for registration, bulk
+  encrypted channels for the data plane.
+
+
+================================================================================
+SECTION 4 — THE WINDOWS ENDPOINT IN DETAIL
+================================================================================
+
+SYSTEM
+  Microsoft Windows 11 Pro, build 26300, 64-bit, standalone WORKGROUP
+  (not domain-joined). Installed 2024-04-01. Hostname DESKTOP-GUSU8GP.
+
+WAZUH AGENT
+  Version 4.9.2. Installed from the official MSI; the Authenticode signature
+  was verified as Valid, signer CN="Wazuh, Inc", O="Wazuh, Inc", San Jose, CA,
+  issued by DigiCert Trusted G4 Code Signing RSA4096 SHA384 2021 CA1.
+  Service name: WazuhSvc. Startup type: Automatic. Survived a reboot.
+  Agent id 001, agent name "win-target", group "default".
+  client.keys holds a real 64-hex shared key issued by the manager.
+  The agent is permanently connected: 192.168.49.1:<ephemeral> ->
+  192.168.49.128:1514, state Established.
+
+  THE <client> BLOCK AS IT STANDS IN ossec.conf
+      <client>
+          <server>
+            <address>192.168.49.128</address>
+            <port>1514</port>
+            <protocol>tcp</protocol>
+          </server>
+          <config-profile>windows, windows10</config-profile>
+          <crypto_method>aes</crypto_method>
+          <notify_time>10</notify_time>
+          <time-reconnect>60</time-reconnect>
+          <auto_restart>yes</auto_restart>
+          <enrollment>
+            <enabled>yes</enabled>
+            <manager_address>192.168.49.128</manager_address>
+            <server_ca_path>C:\Program Files (x86)\ossec-agent\rootCA.pem</server_ca_path>
+            <agent_name>win-target</agent_name>
+            <groups>default</groups>
+          </enrollment>
+        </client>
+
+EVENT CHANNELS THE AGENT COLLECTS (7 localfile entries)
+      Application
+      Security                       (with a query that filters out the noisiest
+                                      object-access ids: 5145, 5156, 5447,
+                                      4656, 4658, 4663, 4660, 4670, 4690,
+                                      4703, 4907, 5152, 5157)
+      System
+      Microsoft-Windows-PowerShell/Operational
+      Microsoft-Windows-Windows Defender/Operational
+      Microsoft-Windows-TerminalServices-LocalSessionManager/Operational
+      active-response\active-responses.log
+
+  Consequence of that filter: 4663 (object access) and 4670 (token right
+  adjusted) are dropped by the agent even if the matching audit subcategory is
+  enabled. 4688, 4698 and 4657 are NOT filtered and do flow.
+
+AUDIT POLICIES ENABLED (all verified via auditpol /get, and re-verified after a
+reboot). 14 subcategories, all Success and Failure unless noted:
+      Logon                          Success and Failure
+      Logoff                         Success and Failure
+      Other Account Logon Events     Success and Failure
+      Account Lockout                Success and Failure
+      Security Group Management      Success and Failure
+      Other Account Management Events Success and Failure
+      Process Creation               Success and Failure
+      Other Object Access Events     Success and Failure
+      Registry                       Success and Failure
+      Audit Policy Change            Success
+      User Account Management        Success
+      Security State Change          Success
+      System Integrity               Success and Failure
+      Special Logon                  Success
+  Note: the actual en-US subcategory name is "Other Account Management Events",
+  not "Other Account Management" as originally written in the brief. The
+  correct name was used.
+
+SERVICES ON THE ENDPOINT
+      WazuhSvc     Running / Automatic   (the agent)
+      sshd         Running / Automatic   (OpenSSH Server, added for testing)
+      TermService  Running / Automatic   (RDP, added for testing; NLA left on)
+
+FIREWALL (Windows Firewall left fully enabled on all three profiles, policy
+BlockInbound / AllowOutbound — never disabled or weakened)
+      xsiem-rdp | Inbound | Allow | TCP 3389 | Remote 192.168.49.128
+      xsiem-smb | Inbound | Allow | TCP 445  | Remote 192.168.49.128
+      xsiem-ssh | Inbound | Allow | TCP 22   | Remote 192.168.49.128
+  Windows' own "Remote Desktop - User Mode (TCP-In)" rules remain DISABLED, so
+  the only live RDP inbound path is the scoped one above. Nothing is reachable
+  from the campus Wi-Fi network or the internet.
+
+TEST ACCOUNT
+      xsiem_test — enabled, member of Users ONLY. Deliberately NOT in
+      Administrators or any other privileged group. Its password lives in .env
+      on the server side and is never committed.
+
+SECURITY CONTROLS LEFT INTACT THROUGHOUT
+      Windows Defender: AM, antispyware, real-time protection and behaviour
+      monitor all enabled, never disabled. Windows Firewall: enabled on
+      Domain, Private and Public. The certificate store was modified only by
+      ADDING the manager's CA, which is required for the agent to enrol.
+
+PRIVILEGE-ESCALATION DETECTION
+      The deliberate test — adding a user to the Administrators group, which
+      raises 4732 with targetSid S-1-5-32-544 and Wazuh rule 60154 at level 12
+      (HIGH) — was verified end to end by the Windows operator adding xsiem_test
+      to Administrators, confirming the 60154 HIGH alert arrived in the index,
+      and then REMOVING it again. The account was left in Users only. It is not
+      pre-staged; the owner runs it from the Kali side when they want it.
+
+
+================================================================================
+SECTION 5 — THE KALI SERVER IN DETAIL
+================================================================================
+
+Wazuh manager, in Docker. Container name single-node-wazuh.manager-1.
+  - authd listens on TCP 1515 and performs the TLS enrolment handshake.
+  - The agent event channel is TCP 1514.
+  - The Wazuh API listens on 55000, bound to loopback on the Kali VM. It is NOT
+    reachable from Windows, which is correct.
+  - The manager's server certificate, as served on 1515:
+        subject = C=US, ST=California, O=Wazuh, OU=Wazuh, CN=wazuh.manager
+        issuer  = OU=Wazuh, O=Wazuh, L=California
+        validity = 2026-10-19 19:35:24Z  ->  2036-10-16 19:35:24Z
+        SHA-256  = 8D:76:47:D5:BB:BD:71:5C:A5:31:5D:E3:06:58:F1:A5:BA:61:28:
+                   07:BF:29:F7:4D:D6:F3:F6:13:37:67:A2:7B
+  - The CA in use, the same one the Windows agent trusts:
+        subject = L=California, O=Wazuh, OU=Wazuh
+        SHA-1   = EC:ED:71:9D:41:30:FF:BE:7A:8F:62:25:2C:E0:0A:D8:32:A1:54:E2
+        SHA-256 = A4:B3:64:CD:E4:61:37:F6:21:12:05:7C:19:25:27:EE:1B:F0:08:
+                   71:FA:EC:10:77:9D:78:0B:F8:3B:B8:CC:35
+    The manager's CA PRIVATE KEY must never leave the machine and is never
+    committed. With it, anyone could mint a certificate the manager trusts and
+    enrol a rogue agent.
+  - The custom rules live at
+      /home/kali/wazuh-docker/single-node/config/custom-rules/xsiem-rules.xml
+    and are bind-mounted into the container, so they survive a container
+    recreate. The file is valid strict XML.
+
+OpenSearch indexer, in Docker. Holds the wazuh-alerts-* indices. Reachable on
+  9200 from the Kali VM only, not from Windows.
+
+FastAPI backend — port 4000, "SIEM Dashboard API v2". Serves /health,
+  /api/alerts, /api/agents, /api/stats, /api/test-email. Swagger UI at
+  http://192.168.49.128:4000/docs.
+
+React dashboard — port 3000, "SIEM Dashboard" / "SIEM Dashboard v2". Left nav:
+  Dashboard, Alerts, Logs, Agents, Investigation. Top bar: search box, Refresh
+  button, notification bell, and a "SOC Analyst" user chip.
+
+Plain-HTTP file server — port 8080. Distributes the agent MSI, the CA, the
+  install script, the payload manifest and the ground-truth document.
+
+Payload tool — xsiem-payloads.sh plus xsiem-payloads.json, in the repo root.
+  Twelve payloads across three severities, ten of them verified end to end
+  against the live index with a captured alert.
+
+Docker is NOT part of what gets published to GitHub — the compose file may be,
+the volumes and images never are.
+
+
+================================================================================
+SECTION 6 — RULE ID TO SEVERITY REFERENCE
+================================================================================
+Severity is derived from the Wazuh rule LEVEL, not from Wazuh's own severity
+field: level >= 12 -> high, level 7..11 -> medium, level < 7 -> low.
+
+LOW
+  60106  Windows Logon Success                                    4624
+  60122  Logon Failure - Unknown user or bad password              4625
+  60137  Windows User Logoff                                      4634
+  60143  Security Enabled Local Group Created                     4727
+  60144  Security Enabled Local Group Member Added                 4732
+  60145  Security Enabled Local Group Member Removed               4729
+  60146  Security Enabled Local Group Deleted                     4737
+  60228  A scheduled task was created                             4698
+  61102  Windows System error event                               system log
+  61104  Service startup type was changed                         system log
+  61138  New Windows Service Created                              7045
+  67027  A process was created                                    4688
+  91813  Powershell script deleted a registry key from an object   4104
+  92652  Successful Remote Logon Detected - NTLM authentication,
+         possible pass-the-hash attack                       4648 / 4776
+  100100 (custom) XSIEM: Windows authentication failure burst
+         (possible brute force)                          aggregation of 4625
+  100205 / 100207 / 100210  temporary PROBE rules used while diagnosing
+         the frequency-counter behaviour. The rules are gone; the three
+         alerts they produced are still in the index, because Wazuh alerts
+         are immutable once indexed.
+
+MEDIUM
+  60109  User account created                                     4720
+  60111  User deleted                                             4725
+  60115  User account locked out (multiple login errors)          4740
+  60204  Multiple Windows Logon Failures       (8 failures / 240 s,
+         same source IP)                       aggregation of 4625
+  61110  Multiple System error events
+  19004  SCA summary: CIS Microsoft Windows 11 Enterprise Benchmark
+         v1.0.0 - score less than 50% (the endpoint currently scores 33%)
+
+HIGH
+  60154  Administrators Group Changed        4732 with targetSid S-1-5-32-544
+  92650  Service installed                                     7045
+  100100 (custom) XSIEM: Windows authentication failure burst
+         (possible brute force)                          aggregation of 4625
+  60015 / 61112  critical-event correlations (not deliberately triggerable)
+
+NOT PRODUCIBLE ON THIS HOST
+  4657  Registry value modified. The "Registry" audit subcategory IS enabled
+        (Success and Failure) and 4657 was tested against HKCU, HKLM and
+        HKEY_USERS, but 4657 additionally requires an audit SACL on the
+        registry object, which a standalone workgroup host does not have. Use
+        the PowerShell 4104 path (rule 91813) for registry-change visibility.
+
+THE SEVERITY LADDER, END TO END
+  LOW    60122  a single failed logon
+  MEDIUM 60115  account lockout, or 60109 / 60111 / 19004 / 61110
+  HIGH   100100  eight failed logons from one IP inside 120 seconds
+  HIGH   60154  a user added to the Administrators group
+
+
+================================================================================
+SECTION 7 — VERIFIED FINDINGS (the engineering content of the project)
+================================================================================
+
+F1  TWO CORRELATION RULES CANNOT BOTH FIRE FROM THE SAME BURST
+    Wazuh 4.9.2 keeps ONE composite frequency counter per matched event
+    stream. Every frequency rule that counts the same 4625 events competes for
+    that single counter, so only one can win per burst. Measured over 20
+    bursts: the custom rule 100100 won 16 and stock rule 60204 won 4, and the
+    winner was non-deterministic. Proven with eleven controlled probe rules
+    (100201-100211, all since removed). Consequence: a demo that depends on
+    100100 appearing can silently get 60204 instead, and the HIGH beat becomes
+    a MEDIUM one. Fix: count on the terminal-matching rule id, then suppress
+    stock 60204 so the competition is removed entirely.
+
+F2  if_matched_sid ON A PARENT RULE NEVER FIRES
+    The original 100100 counted on if_matched_sid 60105. 60105 is the PARENT of
+    60122 and never matches terminally — the child consumes the event, so the
+    parent's counter stays at zero. 21 failed logons produced 21 x 60122 and 0
+    alerts for 100100. The same defect silently kills stock rule 60205. Fix:
+    count on if_matched_sid 60122, the rule that actually matches terminally,
+    with same_field=win.eventdata.ipAddress.
+
+F3  THE API APPLIED FILTERS AFTER THE LIMIT SLICE
+    /api/alerts applied the severity and search filters in Python AFTER the
+    indexer had already sliced to `limit`. So ?limit=3&severity=medium looked
+    at the three newest alerts, found no medium ones, and returned nothing —
+    silently, with success:true in the body. At one point THREE OF THE SIX real
+    HIGH alerts were unreachable through the API. Fix: push the filters into
+    the OpenSearch query so they are applied before the limit slice.
+    Verified after: /api/stats and /api/alerts?severity= agree exactly on high,
+    medium and low.
+
+F4  THE LOCKOUT COUNTER IS CUMULATIVE AND CROSS-PROTOCOL
+    The endpoint's policy is threshold 10, duration 10 minutes, observation
+    window 10 minutes, and it counts failed logons across SMB, SSH and RDP
+    together. While an account is locked, Windows OpenSSH resets the connection
+    instead of refusing the password, which reads like a network fault. A
+    Windows-side operator can clear it instantly with
+        net user xsiem_test /active:no
+        net user xsiem_test /active:yes
+    (verified — changing the PASSWORD does NOT clear a lockout, it returns
+    error 1909 ERROR_ACCOUNT_LOCKED_OUT).
+
+F5  netexec's FAILED-AUTH PATH IS UNUSABLE ON THIS TARGET
+    netexec reports "Connection Error: The NETBIOS connection with the remote
+    host timed out" for failed authentication. This is not a network problem.
+    smbclient and rpcclient return a real NT_STATUS_LOGON_FAILURE and are
+    used instead; netexec is still used for successful authentication.
+
+F6  RDP 3389 WAS FILTERED UNTIL THE WINDOWS SIDE OPENED IT
+    The firewall rule existed but RDP was disabled at the source — the service
+    was stopped and the registry policy was off — so the rule was dead
+    weight. After enabling RDP on the endpoint (service automatic, NLA left
+    on, inbound still scoped to 192.168.49.128 only), failed RDP
+    authentication produces 4625 and successful produces 4624 plus 92657.
+
+TWO MORE DEFECTS FOUND ON THE WINDOWS SIDE
+    W  The agent was collecting only 3 event channels and only 6 audit
+       subcategories were enabled, so most attack techniques produced NO
+       Windows event to collect at all. Enabling Process Creation, Other
+       Object Access Events and Registry, plus adding the PowerShell,
+       Defender and TerminalServices channels, unlocked 4688 (rule 67027),
+       4698 (rule 60228) and PowerShell 4103/4104 (rule 91813).
+    W  The manager's authd was serving a stock self-signed certificate that
+       had EXPIRED (issued 2024-11-05, valid one year). Proven by pointing
+       the agent's server_ca_path at the manager's own certificate: the error
+       moved from "18: self-signed certificate" to "10: certificate has
+       expired". Regenerating the manager's server certificate FROM the
+       existing CA fixed it with no Windows-side change at all — the agent
+       retried on its own 60-second cycle and enrolled by itself.
+
+
+================================================================================
+SECTION 8 — DEMO RUNBOOK
+================================================================================
+
+PRE-FLIGHT, before anyone walks in
+  1. Start the Kali VM (it does not auto-start with the host) and start the
+     stack: ./start-xsiem.sh   (it also serves the file server:
+     ./start-xsiem.sh files)
+  2. On Windows, double-click Xsiem-DemoCheck.cmd on the Desktop. It
+     self-elevates. It checks services, enrolment, the live session to 1514,
+     all audit policies, all event channels, account state, leftover
+     artefacts, the API, severity coverage and the three attack ports, and
+     prints a green/amber/red board. Add -evidence to also write a
+     timestamped report.
+  3. Optionally run Reset-XsiemAccount.cmd if the account is locked.
+
+THE RUN, about six minutes
+  0:00  Architecture. One sentence per machine.
+  0:45  Baseline dashboard: total alerts, severity cards, the Agents badge
+        showing 2, the System Status panel.
+  1:30  Prove the endpoint is instrumented:
+          Get-Service WazuhSvc
+          Get-Content 'C:\Program Files (x86)\ossec-agent\client.keys'
+          Get-NetTCPConnection -RemoteAddress 192.168.49.128
+        Show the Established session on 1514.
+  2:15  Run the attack from Kali. EIGHT is the magic number — above the
+        correlation threshold of 8, below the Windows lockout threshold of 10:
+          ./xsiem-payloads.sh --payload smb_auth_failure_burst \
+              --target 192.168.49.1 --yes
+        Ten or more failures and you also get the MEDIUM 60115 lockout alert,
+        at the cost of the account being unavailable for ten minutes.
+  3:00  Show the detection. Click Alerts in the LEFT NAV — typing
+        :3000/alerts directly returns a 404 because the static server has no
+        SPA history fallback. Search for xsiem_test. Look for rule 60122 and
+        then 100100 at HIGH.
+  3:45  Close the loop on the endpoint — the same event seen from both ends,
+        and the place to show the CORRECT source address:
+          Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4625} -MaxEvents 3 |
+            Select-Object TimeCreated, Id, @{n='Target';e={$_.Properties[5].Value}},
+                             @{n='SrcIP';e={$_.Properties[19].Value}}
+  4:30  Privilege escalation: add xsiem_test to Administrators from Kali.
+        Windows logs 4732, the agent ships it, the SIEM shows rule 60154 at
+        HIGH. Revert afterwards.
+  5:15  API tier: http://192.168.49.128:4000/docs — the Swagger UI behind
+        the dashboard.
+  6:00  Cloud mapping — Section 9.
+
+TWO TRAPS
+  - The Kali VM does not auto-start with Windows. Bring it up BEFORE the demo.
+  - Do not run git init above the repository folder, and note the Kali VM
+    disk image is 86.9 GB on the Windows host.
+
+
+================================================================================
+SECTION 9 — CLOUD ARCHITECTURE MAPPING
+================================================================================
+
+Nothing in this design is exotic. It is the standard cloud telemetry pipeline
+running on two VMs instead of a VPC.
+
+  LAYER        THIS LAB                    AWS                    AZURE                 GCP
+  ----------   ------------------------   --------------------   -------------------   ------------------
+  Endpoint     Windows 11 VM, agent        EC2 / Windows VM       Azure VM / AVD        GCE / Cloud PC
+  Agent        Wazuh agent 4.9.2          CloudWatch Agent,      Azure Monitor         Ops Agent,
+               (outbound only)             SSM Agent              Agent (AMA)           Cloud Logging
+  Collector    Wazuh manager (Docker)     EC2, or Wazuh on EKS   Self-hosted, or      Self-hosted, or
+               :1515 authd, :1514 events   or managed service     Wazuh on AKS         Wazuh on GKE
+  Search       OpenSearch container        Amazon OpenSearch      Azure OpenSearch /   Elastic Cloud on
+                                            Service                Elastic Managed      GCP
+  API tier     FastAPI on :4000           ECS/Fargate, App       Container Apps,      Cloud Run
+                                          Runner, API Gateway    App Service
+  Web tier     React build on :3000       S3 + CloudFront,       Static Web Apps,     Firebase Hosting,
+                                          Amplify                Blob + CDN           GCS + CDN
+  PKI          self-signed CA, imported   ACM / Certificate      Key Vault            Certificate
+               manually                   Manager                                     Manager, cert-manager
+  Segmentation VMware NAT + host firewall  VPC, Security Groups,  VNet, NSGs,          VPC, firewall
+                                          NACLs                  Azure Firewall        rules
+  Agent egress NAT gateway on VMnet8      NAT Gateway, VPC       NAT Gateway,         Cloud NAT,
+                                          endpoints              Private Link         Private Service
+                                                                         Connect
+  Secrets      plain files in the        Secrets Manager        Key Vault            Secret Manager
+               container
+  Managed      —                          GuardDuty,             Microsoft Sentinel   Google SecOps
+  SIEM option                              Security Lake
+
+THE ARCHITECTURAL LESSONS, in the order worth saying them out loud
+  1. AGENT-INITIATED, NEVER INBOUND. The endpoint dials out; the SIEM never
+     connects in. This is the single most important property in cloud, where
+     endpoints sit in private subnets with no public IP and security groups
+     block unsolicited inbound by default. The lab already does it correctly —
+     the inbound rules that do exist are for the authorised attack traffic, not
+     for the telemetry path.
+  2. DECOUPLED TIERS, INDEPENDENTLY SCALABLE. Manager, indexer, API and UI are
+     four processes on one box here; in production they are four autoscaling
+     services, each scaled on its own signal — connections, ingest volume,
+     query rate, static-asset caching.
+  3. PUSH VERSUS PULL. A pull-based collector (a syslog receiver) needs the
+     endpoint to be reachable and needs a firewall rule on every host. A
+     push-based agent needs one outbound rule per subnet. For a fleet that is
+     the difference between thousands of firewall changes and one.
+  4. CERTIFICATE TRUST IS A PLATFORM SERVICE. Importing a CA by hand here is
+     the hand-rolled equivalent of ACM / Key Vault / cert-manager. The expired
+     manager certificate is exactly the class of problem a managed certificate
+     service removes, because it renews before expiry.
+  5. NORMALISATION AT THE COLLECTOR. Raw 4625 becomes rule 60122 with a
+     severity and a description. The ruleset is the detection logic and it
+     lives server-side, so detection rules are updated for thousands of agents
+     by pushing one file, with no agent redeployment — the same split as
+     central Sigma or Suricata engines.
+  6. IMMUTABLE EVENT STORAGE PLUS A QUERY LAYER. OpenSearch keeps the raw
+     events; FastAPI turns them into dashboards and JSON for other tools. In
+     cloud this is the ingest/query split between a durable log store and
+     Athena / BigQuery / Elasticsearch.
+  7. API-FIRST, SO OTHER TOOLS CAN CONSUME. The React UI is just one client.
+     Because the data is exposed as a clean API, a second frontend, a SOAR
+     playbook or a ticketing integration can be added without touching the
+     collection pipeline.
+  8. ATTACK AND DEFEND MUST BE SEPARATED IN PRODUCTION. The attacker tooling
+     and the SIEM share a host here, which is fine in a lab. In production the
+     attacker belongs in its own isolated network with egress control, so a
+     compromised attacker host cannot reach the SIEM's own management plane.
+
+
+================================================================================
+SECTION 10 — THE DEMO BRIEF
+================================================================================
+
+windows-endpoint/xsiem-demo-brief.html is the authoritative narrative
+document: the architecture diagram, the step-by-step data flow, the run-of-show
+with what to say at each beat, the cloud architecture mapping, the full rule
+table, the troubleshooting narrative, and a verification cheat sheet. Open it in
+a browser. It is self-contained and prints cleanly.
+
+The troubleshooting narrative in Section 5 of that brief is the same material as
+Section 7 here, written for a reader rather than for a machine.
+
+
+================================================================================
+SECTION 11 — REPOSITORY LAYOUT
+================================================================================
+
+The repository is PUBLIC. The owner decided that explicitly, on the basis that
+the collaborator needs to read the project to write the assignment document.
+Everything published has been scrubbed: no credentials, no keys, no client.keys,
+no .env, no MSI, no virtual machine images, no node_modules, no Docker volumes.
+
+  .gitignore              hardening rules — secrets, keys, wordlists, VM images,
+                          node_modules, Docker volumes, build output
+  .env.example            every configuration variable, with placeholders only.
+                          The real .env holds the values and is gitignored.
+  windows-endpoint/       the Windows half of the project
+    README.md             the map of this folder
+    Install-WazuhAgent.ps1   installs and enrols the agent; the API credential
+                          is read from the environment, never hardcoded
+    Xsiem-DemoCheck.ps1/.cmd the pre-flight checker
+    Reset-XsiemAccount.ps1/.cmd  clears an account lockout
+    Check-KaliProgress.ps1/.cmd  server-side health and manifest check
+    xsiem-demo-brief.html the demo brief
+  <the Linux half>        added by the Kali side — the FastAPI backend, the
+                          React dashboard, xsiem-payloads.sh and
+                          xsiem-payloads.json, the custom Wazuh rules, the
+                          compose stack, and the docs.
+
+SECRETS THAT EXIST IN THE LAB AND ARE DELIBERATELY NOT IN THE REPOSITORY
+  - the Wazuh API credential for the "wazuh-wui" manager user
+  - the lab test account password for xsiem_test
+  - the agent shared key in client.keys
+  - the manager's CA private key
+  - the Wazuh agent MSI (publicly available — link to the release instead)
+  - the Kali VM disk image (86.9 GB)
+
+
+================================================================================
+SECTION 12 — OPEN ITEMS AND KNOWN ISSUES
+================================================================================
+
+OPEN, being worked on at the time of writing
+  - The dashboard's Source IP column shows the REPORTING AGENT's address
+    (192.168.49.1) rather than the event's source (192.168.49.128) for remote
+    events. The underlying events and the Wazuh correlation are correct; only
+    the display column is wrong. The suspected cause is that the backend reads
+    win.system.ipAddress (the computer that wrote the event) instead of the
+    event's own source field, and that the field name may differ in case
+    (win.eventdata.IpAddress versus win.eventdata.ipAddress). The demo is
+    written to survive this: the raw Windows event shown one beat later
+    carries the correct address.
+  - The "log" field is populated on only three documents in the entire index —
+    the three removed PROBE rules. Every other alert, at every severity, stock
+    or custom, has an empty log. The difference is one field in the stored
+    OpenSearch document, not yet identified.
+  - Rule 67027 "A process was created" is about 96% of the most recent 1000
+    alerts, at roughly 85 per minute. The fix is to override stock 67027 to
+    level 0 in the local rules file so the raw 4688 events stay indexed for
+    investigation but stop generating alerts, and to sort the alert list by
+    severity descending.
+  - Stock 60204 is not yet suppressed, so the F1 competition still stands and
+    100100 wins about 4 bursts in 5 rather than all of them.
+  - The payload "powershell_registry_delete" is honestly flagged
+    unverified. The rule 91813 does fire in this deployment — for the
+    Windows session's own scripts — and the SSH-spawned PowerShell IS being
+    captured (rule 91816 has documents). Only the registry-delete PATTERN did
+    not match. A probe that used the form
+        Remove-Item -Path 'HKLM:\SOFTWARE\XSIEMTest' -Recurse -Force
+    did satisfy the pattern, and the script body captured from an
+    SSH-spawned session appears to be truncated to the first block, so the
+    registry operation should go in block one.
+  - The payload "rdp_auth_failure_burst" is flagged unverified: the mechanism
+    is proven (RDP failures produce 4625/60122, and 8 same-IP 4625 events trip
+    100100) but that exact combination has not yet been observed in one run.
+
+KNOWN, DOCUMENTED, NOT BUGS
+  - "ELK Stack · Degraded" and "Wazuh Manager · Online" in the dashboard's
+    System Status panel are HARDCODED STRINGS in the React bundle, not health
+    checks. Only the agent count is live. "Degraded" therefore means nothing
+    and will read that way regardless of the stack's actual health.
+  - Three "PROBE …" alerts remain in the index from the temporary diagnostic
+    rules. Removing a rule does not delete the alerts it already produced.
+  - 4657 cannot be produced on a standalone workgroup host (see Section 6).
+  - 4663 and 4670 are dropped by the agent's own Security-channel query.
+  - The Kali VM does not auto-start with the Windows host.
+
+
+================================================================================
+SECTION 13 — APPEND SECTION FOR THE KALI LINUX SIDE
+================================================================================
+
+The Kali Linux machine's assistant appends its half below this line. Please keep
+the same section numbering, do not renumber the sections above, and do not
+remove or rewrite anything that is already written — extend it.
+
+Things the Linux side should add, in this order of usefulness to a reader:
+  1. A repository tree with one line per directory saying what lives there.
+  2. How to run the whole thing from scratch: prerequisites, exact order of
+     steps, how to start the stack, how to run the payload tool, how to open
+     the dashboard.
+  3. The payload catalogue: name, severity, Windows event, rule id, what it
+     does, whether it is verified, and how to revert it.
+  4. The exact invocation for each payload in non-interactive mode, plus the
+     flags for target, payload, parameter override, dry run, cleanup and state
+     check, and what the exit codes mean.
+  5. The FastAPI endpoint reference with an example response for each.
+  6. The custom Wazuh rules, rule by rule, with the reasoning.
+  7. Anything it found that is not yet in Sections 1 to 12, and any
+     correction to something above — corrections are welcome and valuable.
+
+--------------------------------------------------------------------------------
+APPENDIX — KALI LINUX SIDE APPENDS BELOW THIS LINE
+--------------------------------------------------------------------------------

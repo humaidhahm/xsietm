@@ -1,0 +1,85 @@
+# ===== SECRETS - never commit =================================================
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+!rootCA.pem
+!*.pub
+!*.crt
+client.keys
+*client.keys*
+*secret*
+*credential*
+*password*
+*passwd*
+*.pfx
+*.p12
+*.keystore
+id_rsa*
+id_ed25519*
+credentials.json
+service-account*.json
+
+# ===== wordlists / dictionaries ================================================
+rockyou*
+*wordlist*
+*word-list*
+SecLists
+*.lst
+*.dict
+passwords.txt
+
+# ===== agent + manager state ==================================================
+ossec.conf
+ossec.conf.bak
+ossec.conf.pre-enrich
+*.state
+wazuh-queue/
+wazuh-alerts-*/
+*.log
+*.out.log
+
+# ===== third-party installers (link to the official release instead) ==========
+*.msi
+*.exe
+*.dll
+*.so
+*.dylib
+
+# ===== virtual machine images ==================================================
+*.vmdk
+*.vmem
+*.vmsn
+*.vswp
+*.vmx
+*.nvram
+*.vmwarevm/
+Kali Linux Image/
+
+# ===== node / python =========================================================
+node_modules/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+dist/
+build/
+*.egg-info/
+npm-debug.log*
+yarn-error.log*
+.pnpm-store/
+
+# ===== docker state (the compose file IS committed, the volumes are not) ======
+docker-compose.override.local.yml
+*.tar
+docker_data/
+volumes/
+
+# ===== editors / OS ==========================================================
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
