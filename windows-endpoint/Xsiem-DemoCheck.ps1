@@ -98,8 +98,32 @@ Chk "severity coverage: medium present" ($st.medium -gt 0) "$($st.medium) medium
 $ah = J "$api/api/alerts?limit=1000&severity=high"
 Chk "filter-before-limit fixed" ($ah -and $ah.total -eq $st.high) "stats.high=$($st.high)  filtered_total=$($ah.total)" $(if($ah -and $ah.total -eq $st.high){'OK'}else{'FAIL'})
 
-$recent = @($ah.data | Select-Object -First 1)
-Chk "src_ip shows the attacker, not the victim" ($false) "currently '$(@($recent)[0].src_ip)' - expected 192.168.49.128 for remote events" 'WARN'
+# src_ip must be the ATTACKER (192.168.49.128) for remote events, and '-' for local ones
+$srcOk = $true; $srcMsg = 'n/a'
+if ($ah -and @($ah.data).Count -gt 0) {
+    $remote = @($ah.data | Where-Object { $_.rule_id -eq '100100' })
+    $local  = @($ah.data | Where-Object { $_.rule_id -eq '60154' })
+    $badR = @($remote | Where-Object { $_.src_ip -ne '192.168.49.128' }).Count
+    $badL = @($local  | Where-Object { $_.src_ip -ne '-' -and $_.src_ip -ne '' }).Count
+    $srcOk = ($badR -eq 0 -and $badL -eq 0)
+    $srcMsg = "remote(100100)=$(@($remote | Group-Object src_ip | ForEach-Object { $_.Name }) -join ',')  local(60154)=$(@($local | Group-Object src_ip | ForEach-Object { $_.Name }) -join ',')"
+}
+Chk "src_ip = attacker for remote events" $srcOk $srcMsg $(if($srcOk){'OK'}else{'FAIL'})
+
+# the raw event body should now be mapped into the log field
+$logOk = $true; $logMsg = 'n/a'
+if ($ah -and @($ah.data).Count -gt 0) {
+    $withLog = @($ah.data | Where-Object { $_.log -and $_.log.Trim() -ne '' }).Count
+    $logOk = ($withLog -gt 0)
+    $logMsg = "$withLog of $(@($ah.data).Count) HIGH alerts carry a raw event body"
+}
+Chk "raw event body present (log field)" $logOk $logMsg $(if($logOk){'OK'}else{'FAIL'})
+
+# process-creation noise should be suppressed
+$noise = 0
+$allA = J "$api/api/alerts?limit=1000"
+if ($allA) { $noise = @($allA.data | Where-Object { $_.rule_id -eq '67027' }).Count }
+Chk "process-creation noise suppressed" ($noise -lt 50) "rule 67027 = $noise of the last 1000 alerts" $(if($noise -lt 50){'OK'}else{'WARN'})
 
 $man = $false
 try { $m = Invoke-WebRequest -Uri "$fs/xsietool-manifest.json" -TimeoutSec 12 -UseBasicParsing; $man = ($m.RawContentLength -gt 0) } catch {}

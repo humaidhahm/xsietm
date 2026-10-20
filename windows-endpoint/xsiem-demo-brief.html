@@ -222,8 +222,8 @@ Get-NetTCPConnection -RemoteAddress 192.168.49.128
   <span>Click <em>Alerts</em> in the left nav. Filter/search for <code>xsiem_test</code>. You should see
   "Logon Failure - Unknown user or bad password" (rule 60122) and, once the burst completes,
   "XSIEM: Windows authentication failure burst (possible brute force)" (rule 100100, level 12 = HIGH).
-  <b>If the Source IP column shows 192.168.49.1, that is the known display bug</b> — the endpoint's own
-  address — and the next step proves the real attacker address.</span></div></div>
+  The Source IP column reads <b>192.168.49.128</b> — the Kali VM, which is the machine that actually
+  performed the attack. The next step proves that from the endpoint's own record.</span></div></div>
 
 <div class="step"><div class="t">3:45</div><div class="b"><strong>Close the loop on the endpoint</strong>
   <span>On Windows, show the raw event that produced it — the same event, seen from both ends. This is
@@ -261,13 +261,13 @@ Get-NetTCPConnection -RemoteAddress 192.168.49.128
 <p>Double-click <code>Xsiem-DemoCheck.cmd</code> on the Windows Desktop (it self-elevates, accept the UAC prompt). It checks every moving part — agent service, enrolment key, live session to 1514, audit policies, event channels, test-account state, leftover artefacts, the XSIEM API, severity coverage and the three attack ports — then prints a green/amber/red checklist. Run <code>Xsiem-DemoCheck.cmd -evidence</code> to also drop a timestamped evidence report on the Desktop that you can attach to your submission.</p>
 
 <div class="note">
-  <b>Two cosmetic quirks in the dashboard, so you are not caught out.</b> The System Status panel in the
-  bottom-left is <em>hardcoded</em> in the React bundle — "Wazuh Manager · Online" and
-  "ELK Stack · Degraded" are static strings, not health checks, and only the agent count is live. So
-  "Degraded" means nothing; it reads that way whether or not the stack is healthy. And the Source IP
-  column currently shows the <em>reporting agent's</em> address (192.168.49.1) rather than the
-  attacker's (192.168.49.128) for remote events — the underlying events and the Wazuh correlation are
-  correct, only the display column is wrong. Both are written up in the project notes.
+  <b>One quirk in the dashboard, so you are not caught out.</b> The System Status panel in the
+  bottom-left used to be decorative — "Wazuh Manager · Online" and "ELK Stack · Degraded" were
+  hardcoded strings in the React bundle rather than health checks, so "Degraded" meant nothing.
+  That has been fixed and the panel now reflects real state. The Source IP column now also shows the
+  <em>attacker's</em> address (192.168.49.128) for remote events, and "-" for a local action, which
+  correctly has no network source. Both were real defects and both are fixed; the raw Windows event
+  shown in step 3:45 is what you use to cross-check them.
 </div>
 
 <h2>4 · How this maps to cloud architecture</h2>
@@ -425,6 +425,7 @@ curl -s http://192.168.49.128:4000/health</code></pre>
 <tr><td><code>91813</code> and siblings</td><td>PowerShell script block activity (e.g. "deleted a registry key")</td><td>4103 / 4104 (PowerShell Operational)</td></tr>
 <tr><td><code>92652</code></td><td>Successful Remote Logon — NTLM authentication, possible pass-the-hash</td><td>4648 / 4776</td></tr>
 <tr><td><code>19004</code></td><td><b>MEDIUM</b> — SCA summary: CIS Microsoft Windows 11 Enterprise Benchmark score below 50% (currently 33%)</td><td>CIS benchmark scan</td></tr>
+<tr><td><code>19007</code></td><td><b>MEDIUM</b> — an individual CIS Windows 11 benchmark check that failed. These are real hardening findings against the endpoint (it fails roughly two thirds of the benchmark), not noise. ~30% of the alert table.</td><td>CIS benchmark scan</td></tr>
 <tr><td><code>100100</code></td><td>XSIEM custom rule — Windows authentication failure burst (possible brute force), level 12 = <b>HIGH</b>. <b>Two defects were found and fixed.</b> (1) It originally counted on <code>if_matched_sid 60105</code>, but 60105 is the <em>parent</em> of 60122 and never matches terminally, so its counter stayed at zero — 21 failed logons produced 0 alerts. (2) It now counts on <code>if_matched_sid 60122</code>, the rule that actually matches terminally, plus <code>same_field=win.eventdata.ipAddress</code>, and won 16 of 20 measured bursts.</td><td>aggregation of 4625</td></tr>
 <tr><td><code>60204</code></td><td><b>MEDIUM</b> — Multiple Windows Logon Failures (threshold: 8 failures in 240 s, same source IP). <b>Competes with 100100 for the same counter</b> — see the note below.</td><td>aggregation of 4625</td></tr>
 <tr><td><code>60115</code></td><td><b>MEDIUM</b> — User account locked out (multiple login errors). <b>Note:</b> this fires only after 10 failures, which locks <code>xsiem_test</code> for 10 minutes. A Windows-side operator can clear it instantly with <code>net user xsiem_test /active:no</code> then <code>/active:yes</code>.</td><td>4740</td></tr>
@@ -439,12 +440,11 @@ curl -s http://192.168.49.128:4000/health</code></pre>
 <div class="note">
   <b>Finding F1 — two correlation rules cannot both fire from the same burst.</b> Wazuh 4.9.2 keeps
   <em>one</em> composite frequency counter per matched event stream, so every frequency rule counting
-  the same 4625 events competes for that single counter and only one can win. Measured over 20 bursts:
-  100100 won 16, 60204 won 4, and the winner was non-deterministic. The fix was to count on the
-  terminal-matching rule id (<code>if_matched_sid 60122</code>) rather than on a group, which made
-  100100 dominant — and then to suppress stock 60204 outright so the competition is removed and the
-  HIGH alert is deterministic. <b>This is the single most interesting thing in the project</b> and it is
-  worth explaining: it is a property of the correlation engine, not a configuration mistake.
+  the same 4625 events competes for that single counter and only one can win. Measured over 20 bursts
+  before the fix: 100100 won 16, 60204 won 4, and the winner was non-deterministic. After switching
+  100100 to count on the terminal-matching rule id (<code>if_matched_sid 60122</code>) the ratio became
+  15 to 1. <b>This is the single most interesting thing in the project</b> and it is worth explaining:
+  it is a property of the correlation engine, not a configuration mistake.
 </div>
 
 <footer>

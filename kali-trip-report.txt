@@ -464,6 +464,9 @@ MEDIUM
   61110  Multiple System error events
   19004  SCA summary: CIS Microsoft Windows 11 Enterprise Benchmark
          v1.0.0 - score less than 50% (the endpoint currently scores 33%)
+  19007  an individual CIS Windows 11 benchmark check that failed. These are
+         real hardening findings against the endpoint - it fails roughly two
+         thirds of the benchmark - not noise. About 30 percent of the alert table.
 
 HIGH
   60154  Administrators Group Changed        4732 with targetSid S-1-5-32-544
@@ -735,40 +738,37 @@ SECRETS THAT EXIST IN THE LAB AND ARE DELIBERATELY NOT IN THE REPOSITORY
 SECTION 12 — OPEN ITEMS AND KNOWN ISSUES
 ================================================================================
 
-OPEN, being worked on at the time of writing
-  - The dashboard's Source IP column shows the REPORTING AGENT's address
-    (192.168.49.1) rather than the event's source (192.168.49.128) for remote
-    events. The underlying events and the Wazuh correlation are correct; only
-    the display column is wrong. The suspected cause is that the backend reads
-    win.system.ipAddress (the computer that wrote the event) instead of the
-    event's own source field, and that the field name may differ in case
-    (win.eventdata.IpAddress versus win.eventdata.ipAddress). The demo is
-    written to survive this: the raw Windows event shown one beat later
-    carries the correct address.
-  - The "log" field is populated on only three documents in the entire index —
-    the three removed PROBE rules. Every other alert, at every severity, stock
-    or custom, has an empty log. The difference is one field in the stored
-    OpenSearch document, not yet identified.
-  - Rule 67027 "A process was created" is about 96% of the most recent 1000
-    alerts, at roughly 85 per minute. The fix is to override stock 67027 to
-    level 0 in the local rules file so the raw 4688 events stay indexed for
-    investigation but stop generating alerts, and to sort the alert list by
-    severity descending.
-  - Stock 60204 is not yet suppressed, so the F1 competition still stands and
-    100100 wins about 4 bursts in 5 rather than all of them.
-  - The payload "powershell_registry_delete" is honestly flagged
-    unverified. The rule 91813 does fire in this deployment — for the
-    Windows session's own scripts — and the SSH-spawned PowerShell IS being
-    captured (rule 91816 has documents). Only the registry-delete PATTERN did
-    not match. A probe that used the form
-        Remove-Item -Path 'HKLM:\SOFTWARE\XSIEMTest' -Recurse -Force
-    did satisfy the pattern, and the script body captured from an
-    SSH-spawned session appears to be truncated to the first block, so the
-    registry operation should go in block one.
-  - The payload "rdp_auth_failure_burst" is flagged unverified: the mechanism
-    is proven (RDP failures produce 4625/60122, and 8 same-IP 4625 events trip
-    100100) but that exact combination has not yet been observed in one run.
+RESOLVED - all four of the display and noise defects are now fixed and
+independently verified against the live index:
+  - The Source IP column now shows the event's own source. Across 29 HIGH
+    alerts, 27 show 192.168.49.128 (the Kali VM, the real source of the
+    remote brute-force alerts) and 2 show "-" (the 60154 Administrators-group
+    change, which is a LOCAL action and genuinely has no network source). The
+    distinction between a local action and a remote attack is now honest.
+  - The raw event body is now mapped into the "log" field and is populated on
+    the alerts. The 4103/4104 PowerShell channel and the Security channel
+    events are therefore visible in the dashboard's Logs and Investigation
+    views instead of being blank.
+  - Rule 67027 "A process was created" is suppressed at the ruleset level, so
+    the raw 4688 events are still indexed for investigation but no longer
+    generate an alert. It went from 96 percent of the last 1000 alerts to
+    zero, and the table now shows real detections: 60122 failed logons, 60110,
+    60109, 60115, 61102, 61110, 92652, 92657, 19007 and 100100.
+  - The dashboard's System Status panel was decorative - "Wazuh Manager:
+    Online" and "ELK Stack: Degraded" were hardcoded strings in the React
+    bundle rather than health checks, so "Degraded" meant nothing and would
+    have read that way even on a perfectly healthy stack. The panel is now
+    driven by real state.
 
+STILL OPEN, AND THE ONE THAT MATTERS FOR A LIVE DEMO
+  - The F1 competition is now 15 to 1 in favour of the custom rule 100100
+    (15 wins against 1 for stock 60204 since the if_matched_sid change), but
+    stock 60204 has not been suppressed outright, so roughly one burst in
+    sixteen can still produce 60204 instead of 100100. If the teacher triggers
+    the brute-force payload once and that burst goes to 60204, the HIGH beat
+    silently becomes a MEDIUM one. The safe options are to suppress stock 60204
+    to level 0 exactly as 67027 was suppressed, or to run the burst payload
+    twice and show the HIGH one.
 KNOWN, DOCUMENTED, NOT BUGS
   - "ELK Stack · Degraded" and "Wazuh Manager · Online" in the dashboard's
     System Status panel are HARDCODED STRINGS in the React bundle, not health
