@@ -1,0 +1,751 @@
+{
+  "version": "2.0",
+  "description": "XSIEM payload library - each entry provokes real Windows security events on the lab target and is verified against the XSIEM API. Severity comes from the Wazuh ruleset; the mapping in the XSIEM backend is level>=12 -> high, level>=7 -> medium, else low.",
+  "defaults": {
+    "target": "192.168.49.1",
+    "api": "http://localhost:4000",
+    "timeout": 60,
+    "verify_limit": 1000
+  },
+  "safety": {
+    "allowed_default_target": "192.168.49.1",
+    "lab_cidr": "192.168.49.0/24"
+  },
+  "payloads": [
+    {
+      "name": "powershell_registry_delete",
+      "title": "PowerShell Registry Deletion (4104 -> 91813)",
+      "description": "Run a PowerShell script on the target that deletes a registry key. Wazuh rule 91812 matches the script text 'Remove-Item -Path' and rule 91813 additionally requires an 'HKLM:' / 'HKCU:' path, so both must appear in the SAME script block. IMPORTANT: Windows Script Block Logging does NOT emit a 4104 for PowerShell spawned by sshd on this target (0 documents in the index for SSH-spawned runs, while interactive sessions log fine), so this payload must be triggered from an INTERACTIVE session on the Windows host. The tool prints the exact script for the operator to run and then verifies the resulting alert.",
+      "expected_severity": "low",
+      "expected_rule_ids": [
+        "91813"
+      ],
+      "windows_event_ids": [
+        4104
+      ],
+      "mitre_attack": [
+        "T1112"
+      ],
+      "runner": "admin_assisted",
+      "revert_required": false,
+      "revert": null,
+      "verified": true,
+      "verified_evidence": "VERIFIED: a captured alert exists in /api/alerts - 2026-10-20T04:11:16.214+0000 rule=91813 severity=low channel=Microsoft-Windows-PowerShell/Operational with script text 'Remove-Item -Path HKLM:\\SOFTWARE\\XSIEMTest -Recurse -Force'. Caveat: that trigger was an INTERACTIVE session; the tool cannot produce the 4104 itself over SSH (0 documents for SSH-spawned PowerShell), so the payload is operator-assisted and prints the command.",
+      "params": [
+        {
+          "name": "windows_command",
+          "type": "string",
+          "default": "powershell -NoProfile -Command \"$ErrorActionPreference = 'Continue'; Remove-Item -Path 'HKLM:\\SOFTWARE\\XSIEMTest' -Recurse -Force -ErrorAction SilentlyContinue; New-Item -Path 'HKCU:\\Software\\XSIEMTest' -Force | Out-Null; Remove-Item -Path 'HKCU:\\Software\\XSIEMTest' -Recurse -Force\"",
+          "description": "Command for the operator to run in an interactive PowerShell on the Windows target Placeholders {{PASSWORD}}, {{ACCOUNT}} and {{GROUP}} are substituted at run time from the environment."
+        },
+        {
+          "name": "wait_seconds",
+          "type": "int",
+          "default": 120,
+          "min": 30,
+          "max": 600,
+          "description": "How long to wait for the event to be forwarded"
+        }
+      ],
+      "required_env": []
+    },
+    {
+      "name": "process_created",
+      "title": "Process Created (4688 -> 67027)",
+      "description": "Run a command on the target over SSH. The Security channel records 4688 'A process was created'. Stock rule 67027 is overridden to level 0 in the deployment so the 4688 flood does not produce alerts - the raw document is still indexed and this payload verifies that, which is what the Investigation view reads.",
+      "expected_severity": "none",
+      "expected_rule_ids": [
+        "67027"
+      ],
+      "windows_event_ids": [
+        4688
+      ],
+      "mitre_attack": [
+        "T1059"
+      ],
+      "runner": "ssh_exec",
+      "revert_required": false,
+      "revert": null,
+      "verified": true,
+      "verified_evidence": "VERIFIED as INDEXED (not alerted): rule 67027 produced 27+ documents for one SSH command execution on 2026-10-20 before it was silenced. The payload now verifies that the 4688 document reaches the index rather than that an alert appears.",
+      "params": [
+        {
+          "name": "command",
+          "type": "string",
+          "default": "cmd /c echo xsiem-demo-process",
+          "description": "Command to run on the target"
+        },
+        {
+          "name": "attempts",
+          "type": "int",
+          "default": 1,
+          "min": 1,
+          "max": 20,
+          "description": "How many times to run it"
+        },
+        {
+          "name": "delay",
+          "type": "int",
+          "default": 1,
+          "min": 0,
+          "max": 60,
+          "description": "Seconds to wait between runs"
+        }
+      ],
+      "verify_mode": "indexed",
+      "required_env": []
+    },
+    {
+      "name": "rdp_failed_logon",
+      "title": "RDP Failed Logon (4625 -> 60122)",
+      "description": "Attempt an RDP logon with a wrong password via xfreerdp. The failed NLA authentication produces 4625 and rule 60122.",
+      "expected_severity": "low",
+      "expected_rule_ids": [
+        "60122"
+      ],
+      "windows_event_ids": [
+        4625
+      ],
+      "mitre_attack": [
+        "T1110"
+      ],
+      "runner": "rdp_auth_fail",
+      "revert_required": false,
+      "revert": null,
+      "verified": true,
+      "verified_evidence": "2026-10-20 rule=60122 severity=low agent=win-target after xfreerdp with a wrong password (xfreerdp exit 134, ERRCONNECT_LOGON_FAILURE)",
+      "params": [
+        {
+          "name": "attempts",
+          "type": "int",
+          "default": 1,
+          "min": 1,
+          "max": 200,
+          "description": "Number of failed logon attempts"
+        },
+        {
+          "name": "delay",
+          "type": "int",
+          "default": 1,
+          "min": 0,
+          "max": 60,
+          "description": "Seconds to wait between attempts"
+        },
+        {
+          "name": "account",
+          "type": "string",
+          "default": "xsiem_test",
+          "description": "Target account name"
+        },
+        {
+          "name": "password",
+          "type": "string",
+          "default": "",
+          "description": "Password to try (blank = deliberately wrong)"
+        }
+      ],
+      "required_env": []
+    },
+    {
+      "name": "rdp_successful_logon",
+      "title": "RDP Successful Logon (4624 -> 60106)",
+      "description": "Authenticate successfully over RDP with the test account. A successful NTLM remote logon is matched by rule 92652 'Successful Remote Logon Detected - possible pass-the-hash attack' (level 6) and, when the event carries a workstation name, by its child 92657 which adds 'Possible RDP connection'. Rule 60106 ('Windows Logon Success', event 4624) is the interactive console path and is NOT produced by a network logon.",
+      "expected_severity": "low",
+      "expected_rule_ids": [
+        "92652",
+        "92657"
+      ],
+      "windows_event_ids": [
+        4624
+      ],
+      "mitre_attack": [
+        "T1078"
+      ],
+      "runner": "rdp_auth_success",
+      "revert_required": false,
+      "revert": null,
+      "verified": true,
+      "verified_evidence": "VERIFIED 2026-10-20: a successful RDP logon as xsiem_test produced rule 92652 level 6 severity=low with src_ip=192.168.49.128 and agent=win-target ('Successful Remote Logon Detected - User:\\xsiem_test - NTLM authentication'), and rule 92657 when the event carried a workstation name. NOTE: an earlier version of this entry wrongly expected rule 60106 (event 4624) for a network logon; 60106 is the interactive console path.",
+      "params": [
+        {
+          "name": "attempts",
+          "type": "int",
+          "default": 1,
+          "min": 1,
+          "max": 20,
+          "description": "Number of successful logons"
+        },
+        {
+          "name": "delay",
+          "type": "int",
+          "default": 2,
+          "min": 0,
+          "max": 60,
+          "description": "Seconds to wait between attempts"
+        },
+        {
+          "name": "account",
+          "type": "string",
+          "default": "xsiem_test",
+          "description": "Target account name"
+        },
+        {
+          "name": "password",
+          "type": "string",
+          "default": "",
+          "description": "Password. Empty = take $XSIEM_TARGET_PASSWORD from the environment (successful logons) or use a deliberately wrong password (failed logons)."
+        }
+      ],
+      "required_env": []
+    },
+    {
+      "name": "scheduled_task_created",
+      "title": "Scheduled Task Created (4698 -> 60228)",
+      "description": "Create a scheduled task on the target as the test account. Windows logs 4698, mapped to rule 60228 (level 4). The task is removed again by default.",
+      "expected_severity": "low",
+      "expected_rule_ids": [
+        "60228"
+      ],
+      "windows_event_ids": [
+        4698
+      ],
+      "mitre_attack": [
+        "T1053.005"
+      ],
+      "runner": "schtasks_create",
+      "revert_required": true,
+      "revert": {
+        "runner": "schtasks_delete",
+        "param": "task_name"
+      },
+      "verified": true,
+      "verified_evidence": "2026-10-20T05:02:34 rule=60228 severity=low src_ip=192.168.49.1 agent=win-target",
+      "params": [
+        {
+          "name": "task_name",
+          "type": "string",
+          "default": "XsiemDemoTask",
+          "description": "Scheduled task name"
+        },
+        {
+          "name": "task_command",
+          "type": "string",
+          "default": "cmd /c echo xsiem-demo",
+          "description": "Command the task would run"
+        },
+        {
+          "name": "task_time",
+          "type": "string",
+          "default": "23:59",
+          "description": "Task start time (HH:MM)"
+        },
+        {
+          "name": "keep",
+          "type": "bool",
+          "default": false,
+          "description": "Leave the task in place instead of deleting it"
+        }
+      ],
+      "required_env": []
+    },
+    {
+      "name": "smb_failed_logon",
+      "title": "SMB Failed Logon (4625 -> 60122)",
+      "description": "Attempt an SMB logon with a wrong password. Windows logs 4625 'Logon Failure'; Wazuh rule 60122 (level 5) is the terminal match.",
+      "expected_severity": "low",
+      "expected_rule_ids": [
+        "60122"
+      ],
+      "windows_event_ids": [
+        4625
+      ],
+      "mitre_attack": [
+        "T1110"
+      ],
+      "runner": "smb_auth_fail",
+      "revert_required": false,
+      "revert": null,
+      "verified": true,
+      "verified_evidence": "2026-10-20T04:45:45 rule=60122 severity=low src_ip=192.168.49.1 agent=win-target",
+      "params": [
+        {
+          "name": "attempts",
+          "type": "int",
+          "default": 1,
+          "min": 1,
+          "max": 200,
+          "description": "Number of failed logon attempts"
+        },
+        {
+          "name": "delay",
+          "type": "int",
+          "default": 0,
+          "min": 0,
+          "max": 60,
+          "description": "Seconds to wait between attempts"
+        },
+        {
+          "name": "account",
+          "type": "string",
+          "default": "xsiem_test",
+          "description": "Target account name"
+        },
+        {
+          "name": "domain",
+          "type": "string",
+          "default": "",
+          "description": "Domain prefix (blank = local)"
+        },
+        {
+          "name": "password",
+          "type": "string",
+          "default": "",
+          "description": "Password to try (blank = deliberately wrong)"
+        }
+      ],
+      "required_env": []
+    },
+    {
+      "name": "smb_successful_logon",
+      "title": "SMB Successful Logon (4624 -> 60106)",
+      "description": "Authenticate successfully over SMB with the test account. A successful NTLM remote logon is matched by rule 92652 'Successful Remote Logon Detected - possible pass-the-hash attack' (level 6) and, when the event carries a workstation name, by its child 92657 which adds 'Possible RDP connection'. Rule 60106 ('Windows Logon Success', event 4624) is the interactive console path and is NOT produced by a network logon.",
+      "expected_severity": "low",
+      "expected_rule_ids": [
+        "92652",
+        "92657"
+      ],
+      "windows_event_ids": [
+        4624
+      ],
+      "mitre_attack": [
+        "T1078"
+      ],
+      "runner": "smb_auth_success",
+      "revert_required": false,
+      "revert": null,
+      "verified": true,
+      "verified_evidence": "VERIFIED 2026-10-20: a successful SMB logon as xsiem_test produced rule 92652 level 6 severity=low with src_ip=192.168.49.128 and agent=win-target ('Successful Remote Logon Detected - User:\\xsiem_test - NTLM authentication'), and rule 92657 when the event carried a workstation name. NOTE: an earlier version of this entry wrongly expected rule 60106 (event 4624) for a network logon; 60106 is the interactive console path.",
+      "params": [
+        {
+          "name": "attempts",
+          "type": "int",
+          "default": 1,
+          "min": 1,
+          "max": 20,
+          "description": "Number of successful logons"
+        },
+        {
+          "name": "delay",
+          "type": "int",
+          "default": 1,
+          "min": 0,
+          "max": 60,
+          "description": "Seconds to wait between attempts"
+        },
+        {
+          "name": "account",
+          "type": "string",
+          "default": "xsiem_test",
+          "description": "Target account name"
+        },
+        {
+          "name": "domain",
+          "type": "string",
+          "default": "",
+          "description": "Domain prefix (blank = local)"
+        },
+        {
+          "name": "password",
+          "type": "string",
+          "default": "",
+          "description": "Password. Empty = take $XSIEM_TARGET_PASSWORD from the environment (successful logons) or use a deliberately wrong password (failed logons)."
+        }
+      ],
+      "required_env": []
+    },
+    {
+      "name": "ssh_failed_logon",
+      "title": "SSH Failed Logon (4625 -> 60122)",
+      "description": "Attempt an SSH logon with a wrong password. Windows OpenSSH failures still produce 4625 in the Security log, so rule 60122 fires.",
+      "expected_severity": "low",
+      "expected_rule_ids": [
+        "60122"
+      ],
+      "windows_event_ids": [
+        4625
+      ],
+      "mitre_attack": [
+        "T1110"
+      ],
+      "runner": "ssh_auth_fail",
+      "revert_required": false,
+      "revert": null,
+      "verified": true,
+      "verified_evidence": "2026-10-20 rule=60122 severity=low agent=win-target (10 SSH failures produced 60122)",
+      "params": [
+        {
+          "name": "attempts",
+          "type": "int",
+          "default": 1,
+          "min": 1,
+          "max": 200,
+          "description": "Number of failed logon attempts"
+        },
+        {
+          "name": "delay",
+          "type": "int",
+          "default": 0,
+          "min": 0,
+          "max": 60,
+          "description": "Seconds to wait between attempts"
+        },
+        {
+          "name": "account",
+          "type": "string",
+          "default": "xsiem_test",
+          "description": "Target account name"
+        },
+        {
+          "name": "password",
+          "type": "string",
+          "default": "",
+          "description": "Password to try (blank = deliberately wrong)"
+        }
+      ],
+      "required_env": []
+    },
+    {
+      "name": "account_lockout",
+      "title": "Account Lockout (4740 -> 60115)",
+      "description": "Deliberately fail 11+ logons for the real lab account so the target's lockout policy (threshold 10, 10 minute duration) raises event 4740, mapped to rule 60115 (level 9). WARNING: this locks xsiem_test out for 10 minutes. Windows OpenSSH resets the connection while an account is locked, so SSH payloads will fail until it expires. A Windows-side operator can clear it immediately with 'net user xsiem_test /active:no' then '/active:yes'.",
+      "expected_severity": "medium",
+      "expected_rule_ids": [
+        "60115"
+      ],
+      "windows_event_ids": [
+        4740
+      ],
+      "mitre_attack": [
+        "T1110",
+        "T1531"
+      ],
+      "runner": "smb_auth_fail",
+      "revert_required": false,
+      "revert": null,
+      "verified": true,
+      "verified_evidence": "2026-10-20T04:17:45 rule=60115 severity=medium src_ip=192.168.49.1 agent=win-target",
+      "params": [
+        {
+          "name": "attempts",
+          "type": "int",
+          "default": 11,
+          "min": 11,
+          "max": 200,
+          "description": "Failed logons (the target's lockout threshold is 10)"
+        },
+        {
+          "name": "delay",
+          "type": "int",
+          "default": 0,
+          "min": 0,
+          "max": 60,
+          "description": "Seconds between attempts"
+        },
+        {
+          "name": "account",
+          "type": "string",
+          "default": "xsiem_test",
+          "description": "Account to lock out (unlocks itself after 10 min)"
+        },
+        {
+          "name": "domain",
+          "type": "string",
+          "default": "",
+          "description": "Domain prefix (blank = local)"
+        },
+        {
+          "name": "password",
+          "type": "string",
+          "default": "",
+          "description": "Password to try (blank = deliberately wrong)"
+        }
+      ],
+      "required_env": []
+    },
+    {
+      "name": "user_account_created",
+      "title": "User Account Created (4720 -> 60109 MEDIUM)",
+      "description": "Create a temporary local user on the target. Windows logs 4720 and Wazuh rule 60109 'User account enabled or created' (level 8) fires - a MEDIUM alert that does NOT touch the lockout counter, so it is a safe default for the MEDIUM tier of a demo. Requires Administrator on the target: either set ADMIN_USER / ADMIN_PASS for the tool, or run the printed command yourself in an elevated PowerShell. The revert command deletes the account again and --state-check confirms it is gone.",
+      "expected_severity": "medium",
+      "expected_rule_ids": [
+        "60109"
+      ],
+      "windows_event_ids": [
+        4720
+      ],
+      "mitre_attack": [
+        "T1136"
+      ],
+      "runner": "admin_assisted",
+      "revert_required": true,
+      "revert": {
+        "runner": "operator_revert",
+        "param": "revert_command"
+      },
+      "verified": false,
+      "verified_evidence": "UNVERIFIED by this tool: rule 60109 is present in the live index from a Windows-side action, but this tool does not hold an admin credential and has not driven the account creation itself.",
+      "params": [
+        {
+          "name": "account",
+          "type": "string",
+          "default": "xsiem_demo_user",
+          "description": "Account to create"
+        },
+        {
+          "name": "password",
+          "type": "string",
+          "default": "",
+          "description": "Password for the new account. Empty = take $XSIEM_TARGET_PASSWORD from the environment (successful logons) or use a deliberately wrong password (failed logons)."
+        },
+        {
+          "name": "windows_command",
+          "type": "string",
+          "default": "net user {{ACCOUNT}} {{PASSWORD}} /add",
+          "description": "Command for the operator to run in an elevated PowerShell on the target Placeholders {{PASSWORD}}, {{ACCOUNT}} and {{GROUP}} are substituted at run time from the environment."
+        },
+        {
+          "name": "revert_command",
+          "type": "string",
+          "default": "net user {{ACCOUNT}} /delete",
+          "description": "Command that reverts the change Placeholders {{PASSWORD}}, {{ACCOUNT}} and {{GROUP}} are substituted at run time from the environment."
+        },
+        {
+          "name": "wait_seconds",
+          "type": "int",
+          "default": 120,
+          "min": 30,
+          "max": 600,
+          "description": "How long to wait for the event to be forwarded"
+        }
+      ],
+      "required_env": []
+    },
+    {
+      "name": "privileged_group_change",
+      "title": "Privileged Group Change (4732 -> 60154 HIGH)",
+      "description": "Add the test account to a privileged local group. Windows logs 4732 and Wazuh rule 60154 'Administrators Group Changed' (level 12) fires for the Administrators group (targetSid S-1-5-32-544). This is a LOCAL administrative action, so the event carries no source address and the alert shows src_ip '-' rather than the agent address. Requires Administrator on the target: either set ADMIN_USER / ADMIN_PASS for the tool, or run the printed command yourself in an elevated PowerShell. The revert command removes the account from the group again and is verified by --state-check.",
+      "expected_severity": "high",
+      "expected_rule_ids": [
+        "60154"
+      ],
+      "windows_event_ids": [
+        4732
+      ],
+      "mitre_attack": [
+        "T1098"
+      ],
+      "runner": "admin_assisted",
+      "revert_required": true,
+      "revert": {
+        "runner": "operator_revert",
+        "param": "revert_command"
+      },
+      "verified": false,
+      "verified_evidence": "UNVERIFIED by this tool: rule 60154 is confirmed working end to end on this target (2026-10-20T06:27:01 and 06:27:40, memberSid S-1-5-21-3157694894-2919287776-405654444-1023, targetSid S-1-5-32-544) but it was driven from the Windows side with administrator rights. This tool does not hold an admin credential on the target, so it prints the command for an operator instead.",
+      "params": [
+        {
+          "name": "account",
+          "type": "string",
+          "default": "xsiem_test",
+          "description": "Account to add to the group"
+        },
+        {
+          "name": "group",
+          "type": "string",
+          "default": "Administrators",
+          "description": "Target local group"
+        },
+        {
+          "name": "windows_command",
+          "type": "string",
+          "default": "net localgroup Administrators {{ACCOUNT}} /add",
+          "description": "Command for the operator to run in an elevated PowerShell on the target Placeholders {{PASSWORD}}, {{ACCOUNT}} and {{GROUP}} are substituted at run time from the environment."
+        },
+        {
+          "name": "revert_command",
+          "type": "string",
+          "default": "net localgroup Administrators {{ACCOUNT}} /delete",
+          "description": "Command that reverts the change Placeholders {{PASSWORD}}, {{ACCOUNT}} and {{GROUP}} are substituted at run time from the environment."
+        },
+        {
+          "name": "wait_seconds",
+          "type": "int",
+          "default": 120,
+          "min": 30,
+          "max": 600,
+          "description": "How long to wait for the event to be forwarded"
+        }
+      ],
+      "required_env": []
+    },
+    {
+      "name": "rdp_auth_failure_burst",
+      "title": "RDP Auth Failure Burst (4625 x8 -> 100100 HIGH)",
+      "description": "Eight failed RDP logons from one source IP inside 120 seconds trip the custom correlation rule 100100 (level 12 = HIGH). Safe: below the lockout threshold of 10.",
+      "expected_severity": "high",
+      "expected_rule_ids": [
+        "100100"
+      ],
+      "windows_event_ids": [
+        4625
+      ],
+      "mitre_attack": [
+        "T1110"
+      ],
+      "runner": "rdp_auth_fail",
+      "revert_required": false,
+      "revert": null,
+      "verified": false,
+      "verified_evidence": "UNVERIFIED: the underlying mechanism is proven - 8 failed RDP logons produce 4625 and rule 60122 (verified 2026-10-20), and rule 100100 fires on 8 same-IP 4625 events (verified 2026-10-20T06:11:54). This exact combination has not yet been observed in a single run, so it is flagged unverified rather than claimed.",
+      "params": [
+        {
+          "name": "attempts",
+          "type": "int",
+          "default": 8,
+          "min": 8,
+          "max": 200,
+          "description": "Failed logons (8 trips the 100100 threshold; 10+ also locks the account)"
+        },
+        {
+          "name": "delay",
+          "type": "int",
+          "default": 1,
+          "min": 0,
+          "max": 60,
+          "description": "Seconds between attempts"
+        },
+        {
+          "name": "account",
+          "type": "string",
+          "default": "xsiem_test",
+          "description": "Target account name"
+        },
+        {
+          "name": "password",
+          "type": "string",
+          "default": "",
+          "description": "Password to try (blank = deliberately wrong)"
+        }
+      ],
+      "required_env": []
+    },
+    {
+      "name": "smb_auth_failure_burst",
+      "title": "SMB Auth Failure Burst (4625 x8 -> 100100 HIGH)",
+      "description": "Eight failed SMB logons from one source IP inside 120 seconds trip the custom correlation rule 100100 'XSIEM: Windows authentication failure burst' (level 12 = HIGH). Safe: 8 is below the target's lockout threshold of 10, so the account is not locked. NOTE: the stock rule 60204 'Multiple Windows Logon Failures' (level 10 = MEDIUM) is SUPPRESSED while 100100 exists. Wazuh 4.9.2 keeps ONE composite frequency counter per matched event stream, so every frequency rule counting the same 4625 events competes for it and only one can fire. Measured over 8+ bursts, using if_matched_group made the winner non-deterministic (100100 won 7 times, 60204 once); rule 100100 now uses if_matched_sid 60122 and won 4 out of 4 consecutive bursts. Use the account_lockout payload (rule 60115) for the MEDIUM tier.",
+      "expected_severity": "high",
+      "expected_rule_ids": [
+        "100100"
+      ],
+      "windows_event_ids": [
+        4625
+      ],
+      "mitre_attack": [
+        "T1110"
+      ],
+      "runner": "smb_auth_fail",
+      "revert_required": false,
+      "revert": null,
+      "verified": true,
+      "verified_evidence": "2026-10-20T07:05:26 rule=100100 level=12 severity=high src_ip=192.168.49.1 agent=win-target (8 failures as xsiem_test via the tool); also 06:53:37, 06:55:57, 06:58:24, 07:00:52 - 4/4 consecutive bursts",
+      "params": [
+        {
+          "name": "attempts",
+          "type": "int",
+          "default": 8,
+          "min": 8,
+          "max": 200,
+          "description": "Failed logons (8 trips the 100100 threshold; 10+ also locks the account)"
+        },
+        {
+          "name": "delay",
+          "type": "int",
+          "default": 0,
+          "min": 0,
+          "max": 60,
+          "description": "Seconds between attempts"
+        },
+        {
+          "name": "account",
+          "type": "string",
+          "default": "xsiem_test",
+          "description": "Target account name"
+        },
+        {
+          "name": "domain",
+          "type": "string",
+          "default": "",
+          "description": "Domain prefix (blank = local)"
+        },
+        {
+          "name": "password",
+          "type": "string",
+          "default": "",
+          "description": "Password to try (blank = deliberately wrong)"
+        }
+      ],
+      "required_env": []
+    },
+    {
+      "name": "ssh_auth_failure_burst",
+      "title": "SSH Auth Failure Burst (4625 x8 -> 100100 HIGH)",
+      "description": "Eight failed SSH logons from one source IP inside 120 seconds trip the custom correlation rule 100100 (level 12 = HIGH). Safe: below the lockout threshold of 10. Use account_lockout for the MEDIUM tier.",
+      "expected_severity": "high",
+      "expected_rule_ids": [
+        "100100"
+      ],
+      "windows_event_ids": [
+        4625
+      ],
+      "mitre_attack": [
+        "T1110"
+      ],
+      "runner": "ssh_auth_fail",
+      "revert_required": false,
+      "revert": null,
+      "verified": true,
+      "verified_evidence": "2026-10-20 rule=100100 level=12 severity=high agent=win-target after SSH failure bursts",
+      "params": [
+        {
+          "name": "attempts",
+          "type": "int",
+          "default": 8,
+          "min": 8,
+          "max": 200,
+          "description": "Failed logons (8 trips the 100100 threshold; 10+ also locks the account)"
+        },
+        {
+          "name": "delay",
+          "type": "int",
+          "default": 0,
+          "min": 0,
+          "max": 60,
+          "description": "Seconds between attempts"
+        },
+        {
+          "name": "account",
+          "type": "string",
+          "default": "xsiem_test",
+          "description": "Target account name"
+        },
+        {
+          "name": "password",
+          "type": "string",
+          "default": "",
+          "description": "Password to try (blank = deliberately wrong)"
+        }
+      ],
+      "required_env": []
+    }
+  ]
+}

@@ -1,0 +1,1610 @@
+{
+  "tool": "xsiem-payloads",
+  "version": "2.0",
+  "generated_utc": "2026-10-20T08:49:54.932391+00:00",
+  "target": "192.168.49.1",
+  "api": "http://localhost:4000",
+  "indexer": "https://localhost:9200",
+  "severity_mapping": {
+    "high": "level >= 12",
+    "medium": "level >= 7 and < 12",
+    "low": "level < 7",
+    "source": "xsiem-backend main.py format_opensearch_alert()"
+  },
+  "live_index": {
+    "total_alerts": 20544,
+    "by_severity": {
+      "high": 38,
+      "medium": 441,
+      "low": 20065
+    },
+    "agents": [
+      {
+        "name": "wazuh.manager",
+        "status": "active",
+        "ip": "127.0.0.1",
+        "version": "Wazuh v4.9.2"
+      },
+      {
+        "name": "win-target",
+        "status": "active",
+        "ip": "192.168.49.1",
+        "version": "Wazuh v4.9.2"
+      }
+    ]
+  },
+  "payloads": [
+    {
+      "name": "powershell_registry_delete",
+      "title": "PowerShell Registry Deletion (4104 -> 91813)",
+      "description": "Run a PowerShell script on the target that deletes a registry key. Wazuh rule 91812 matches the script text 'Remove-Item -Path' and rule 91813 additionally requires an 'HKLM:' / 'HKCU:' path, so both must appear in the SAME script block. IMPORTANT: Windows Script Block Logging does NOT emit a 4104 for PowerShell spawned by sshd on this target (0 documents in the index for SSH-spawned runs, while interactive sessions log fine), so this payload must be triggered from an INTERACTIVE session on the Windows host. The tool prints the exact script for the operator to run and then verifies the resulting alert.",
+      "expected_severity": "low",
+      "expected_rule_ids": [
+        "91813"
+      ],
+      "windows_event_ids": [
+        4104
+      ],
+      "mitre_attack": [
+        "T1112"
+      ],
+      "revert_required": false,
+      "verified": true,
+      "verified_evidence": "VERIFIED: a captured alert exists in /api/alerts - 2026-10-20T04:11:16.214+0000 rule=91813 severity=low channel=Microsoft-Windows-PowerShell/Operational with script text 'Remove-Item -Path HKLM:\\SOFTWARE\\XSIEMTest -Recurse -Force'. Caveat: that trigger was an INTERACTIVE session; the tool cannot produce the 4104 itself over SSH (0 documents for SSH-spawned PowerShell), so the payload is operator-assisted and prints the command.",
+      "rule_facts": {
+        "91813": {
+          "level": 3,
+          "severity": "low",
+          "description": "Powershell script deleted a registry key from an object",
+          "documents_in_index_now": 1
+        }
+      },
+      "latest_matching_alert_in_index": {
+        "91813": {
+          "agent": {
+            "name": "win-target"
+          },
+          "rule": {
+            "level": 3,
+            "description": "Powershell script deleted a registry key from an object",
+            "id": "91813"
+          },
+          "timestamp": "2026-10-20T04:11:16.214+0000"
+        }
+      }
+    },
+    {
+      "name": "process_created",
+      "title": "Process Created (4688 -> 67027)",
+      "description": "Run a command on the target over SSH. The Security channel records 4688 'A process was created'. Stock rule 67027 is overridden to level 0 in the deployment so the 4688 flood does not produce alerts - the raw document is still indexed and this payload verifies that, which is what the Investigation view reads.",
+      "expected_severity": "none",
+      "expected_rule_ids": [
+        "67027"
+      ],
+      "windows_event_ids": [
+        4688
+      ],
+      "mitre_attack": [
+        "T1059"
+      ],
+      "revert_required": false,
+      "verified": true,
+      "verified_evidence": "VERIFIED as INDEXED (not alerted): rule 67027 produced 27+ documents for one SSH command execution on 2026-10-20 before it was silenced. The payload now verifies that the 4688 document reaches the index rather than that an alert appears.",
+      "rule_facts": {
+        "67027": {
+          "level": 3,
+          "severity": "low",
+          "description": "A process was created.",
+          "documents_in_index_now": 17350
+        }
+      },
+      "latest_matching_alert_in_index": {
+        "67027": {
+          "agent": {
+            "name": "win-target"
+          },
+          "rule": {
+            "level": 3,
+            "description": "A process was created.",
+            "id": "67027"
+          },
+          "timestamp": "2026-10-20T08:14:08.729+0000"
+        }
+      }
+    },
+    {
+      "name": "rdp_failed_logon",
+      "title": "RDP Failed Logon (4625 -> 60122)",
+      "description": "Attempt an RDP logon with a wrong password via xfreerdp. The failed NLA authentication produces 4625 and rule 60122.",
+      "expected_severity": "low",
+      "expected_rule_ids": [
+        "60122"
+      ],
+      "windows_event_ids": [
+        4625
+      ],
+      "mitre_attack": [
+        "T1110"
+      ],
+      "revert_required": false,
+      "verified": true,
+      "verified_evidence": "2026-10-20 rule=60122 severity=low agent=win-target after xfreerdp with a wrong password (xfreerdp exit 134, ERRCONNECT_LOGON_FAILURE)",
+      "rule_facts": {
+        "60122": {
+          "level": 5,
+          "severity": "low",
+          "description": "Logon Failure - Unknown user or bad password",
+          "documents_in_index_now": 371
+        }
+      },
+      "latest_matching_alert_in_index": {
+        "60122": {
+          "agent": {
+            "name": "win-target"
+          },
+          "rule": {
+            "level": 5,
+            "description": "Logon Failure - Unknown user or bad password",
+            "id": "60122"
+          },
+          "timestamp": "2026-10-20T08:43:13.127+0000"
+        }
+      }
+    },
+    {
+      "name": "rdp_successful_logon",
+      "title": "RDP Successful Logon (4624 -> 60106)",
+      "description": "Authenticate successfully over RDP with the test account. A successful NTLM remote logon is matched by rule 92652 'Successful Remote Logon Detected - possible pass-the-hash attack' (level 6) and, when the event carries a workstation name, by its child 92657 which adds 'Possible RDP connection'. Rule 60106 ('Windows Logon Success', event 4624) is the interactive console path and is NOT produced by a network logon.",
+      "expected_severity": "low",
+      "expected_rule_ids": [
+        "92652",
+        "92657"
+      ],
+      "windows_event_ids": [
+        4624
+      ],
+      "mitre_attack": [
+        "T1078"
+      ],
+      "revert_required": false,
+      "verified": true,
+      "verified_evidence": "VERIFIED 2026-10-20: a successful RDP logon as xsiem_test produced rule 92652 level 6 severity=low with src_ip=192.168.49.128 and agent=win-target ('Successful Remote Logon Detected - User:\\xsiem_test - NTLM authentication'), and rule 92657 when the event carried a workstation name. NOTE: an earlier version of this entry wrongly expected rule 60106 (event 4624) for a network logon; 60106 is the interactive console path.",
+      "rule_facts": {
+        "92652": {
+          "level": 6,
+          "severity": "low",
+          "description": "Successful Remote Logon Detected - ANONYMOUS LOGON",
+          "documents_in_index_now": 125
+        },
+        "92657": {
+          "level": 6,
+          "severity": "low",
+          "description": "Successful Remote Logon Detected",
+          "documents_in_index_now": 10
+        }
+      },
+      "latest_matching_alert_in_index": {
+        "92652": {
+          "agent": {
+            "name": "win-target"
+          },
+          "rule": {
+            "level": 6,
+            "description": "Successful Remote Logon Detected - User:\\xsiem_test - NTLM authentication, possible pass-the-hash attack.",
+            "id": "92652"
+          },
+          "timestamp": "2026-10-20T08:49:11.151+0000"
+        },
+        "92657": {
+          "agent": {
+            "name": "win-target"
+          },
+          "rule": {
+            "level": 6,
+            "description": "Successful Remote Logon Detected - User:\\xsiem_test - NTLM authentication, possible pass-the-hash attack - Possible RDP connection. Verify that kali is allowed to perform RDP connections",
+            "id": "92657"
+          },
+          "timestamp": "2026-10-20T08:49:09.885+0000"
+        }
+      }
+    },
+    {
+      "name": "scheduled_task_created",
+      "title": "Scheduled Task Created (4698 -> 60228)",
+      "description": "Create a scheduled task on the target as the test account. Windows logs 4698, mapped to rule 60228 (level 4). The task is removed again by default.",
+      "expected_severity": "low",
+      "expected_rule_ids": [
+        "60228"
+      ],
+      "windows_event_ids": [
+        4698
+      ],
+      "mitre_attack": [
+        "T1053.005"
+      ],
+      "revert_required": true,
+      "verified": true,
+      "verified_evidence": "2026-10-20T05:02:34 rule=60228 severity=low src_ip=192.168.49.1 agent=win-target",
+      "rule_facts": {
+        "60228": {
+          "level": 4,
+          "severity": "low",
+          "description": "A scheduled task was created",
+          "documents_in_index_now": 9
+        }
+      },
+      "latest_matching_alert_in_index": {
+        "60228": {
+          "agent": {
+            "name": "win-target"
+          },
+          "rule": {
+            "level": 4,
+            "description": "A scheduled task was created",
+            "id": "60228"
+          },
+          "timestamp": "2026-10-20T08:04:17.215+0000"
+        }
+      }
+    },
+    {
+      "name": "smb_failed_logon",
+      "title": "SMB Failed Logon (4625 -> 60122)",
+      "description": "Attempt an SMB logon with a wrong password. Windows logs 4625 'Logon Failure'; Wazuh rule 60122 (level 5) is the terminal match.",
+      "expected_severity": "low",
+      "expected_rule_ids": [
+        "60122"
+      ],
+      "windows_event_ids": [
+        4625
+      ],
+      "mitre_attack": [
+        "T1110"
+      ],
+      "revert_required": false,
+      "verified": true,
+      "verified_evidence": "2026-10-20T04:45:45 rule=60122 severity=low src_ip=192.168.49.1 agent=win-target",
+      "rule_facts": {
+        "60122": {
+          "level": 5,
+          "severity": "low",
+          "description": "Logon Failure - Unknown user or bad password",
+          "documents_in_index_now": 371
+        }
+      },
+      "latest_matching_alert_in_index": {
+        "60122": {
+          "agent": {
+            "name": "win-target"
+          },
+          "rule": {
+            "level": 5,
+            "description": "Logon Failure - Unknown user or bad password",
+            "id": "60122"
+          },
+          "timestamp": "2026-10-20T08:43:13.127+0000"
+        }
+      }
+    },
+    {
+      "name": "smb_successful_logon",
+      "title": "SMB Successful Logon (4624 -> 60106)",
+      "description": "Authenticate successfully over SMB with the test account. A successful NTLM remote logon is matched by rule 92652 'Successful Remote Logon Detected - possible pass-the-hash attack' (level 6) and, when the event carries a workstation name, by its child 92657 which adds 'Possible RDP connection'. Rule 60106 ('Windows Logon Success', event 4624) is the interactive console path and is NOT produced by a network logon.",
+      "expected_severity": "low",
+      "expected_rule_ids": [
+        "92652",
+        "92657"
+      ],
+      "windows_event_ids": [
+        4624
+      ],
+      "mitre_attack": [
+        "T1078"
+      ],
+      "revert_required": false,
+      "verified": true,
+      "verified_evidence": "VERIFIED 2026-10-20: a successful SMB logon as xsiem_test produced rule 92652 level 6 severity=low with src_ip=192.168.49.128 and agent=win-target ('Successful Remote Logon Detected - User:\\xsiem_test - NTLM authentication'), and rule 92657 when the event carried a workstation name. NOTE: an earlier version of this entry wrongly expected rule 60106 (event 4624) for a network logon; 60106 is the interactive console path.",
+      "rule_facts": {
+        "92652": {
+          "level": 6,
+          "severity": "low",
+          "description": "Successful Remote Logon Detected - ANONYMOUS LOGON",
+          "documents_in_index_now": 125
+        },
+        "92657": {
+          "level": 6,
+          "severity": "low",
+          "description": "Successful Remote Logon Detected",
+          "documents_in_index_now": 10
+        }
+      },
+      "latest_matching_alert_in_index": {
+        "92652": {
+          "agent": {
+            "name": "win-target"
+          },
+          "rule": {
+            "level": 6,
+            "description": "Successful Remote Logon Detected - User:\\xsiem_test - NTLM authentication, possible pass-the-hash attack.",
+            "id": "92652"
+          },
+          "timestamp": "2026-10-20T08:49:11.151+0000"
+        },
+        "92657": {
+          "agent": {
+            "name": "win-target"
+          },
+          "rule": {
+            "level": 6,
+            "description": "Successful Remote Logon Detected - User:\\xsiem_test - NTLM authentication, possible pass-the-hash attack - Possible RDP connection. Verify that kali is allowed to perform RDP connections",
+            "id": "92657"
+          },
+          "timestamp": "2026-10-20T08:49:09.885+0000"
+        }
+      }
+    },
+    {
+      "name": "ssh_failed_logon",
+      "title": "SSH Failed Logon (4625 -> 60122)",
+      "description": "Attempt an SSH logon with a wrong password. Windows OpenSSH failures still produce 4625 in the Security log, so rule 60122 fires.",
+      "expected_severity": "low",
+      "expected_rule_ids": [
+        "60122"
+      ],
+      "windows_event_ids": [
+        4625
+      ],
+      "mitre_attack": [
+        "T1110"
+      ],
+      "revert_required": false,
+      "verified": true,
+      "verified_evidence": "2026-10-20 rule=60122 severity=low agent=win-target (10 SSH failures produced 60122)",
+      "rule_facts": {
+        "60122": {
+          "level": 5,
+          "severity": "low",
+          "description": "Logon Failure - Unknown user or bad password",
+          "documents_in_index_now": 371
+        }
+      },
+      "latest_matching_alert_in_index": {
+        "60122": {
+          "agent": {
+            "name": "win-target"
+          },
+          "rule": {
+            "level": 5,
+            "description": "Logon Failure - Unknown user or bad password",
+            "id": "60122"
+          },
+          "timestamp": "2026-10-20T08:43:13.127+0000"
+        }
+      }
+    },
+    {
+      "name": "account_lockout",
+      "title": "Account Lockout (4740 -> 60115)",
+      "description": "Deliberately fail 11+ logons for the real lab account so the target's lockout policy (threshold 10, 10 minute duration) raises event 4740, mapped to rule 60115 (level 9). WARNING: this locks xsiem_test out for 10 minutes. Windows OpenSSH resets the connection while an account is locked, so SSH payloads will fail until it expires. A Windows-side operator can clear it immediately with 'net user xsiem_test /active:no' then '/active:yes'.",
+      "expected_severity": "medium",
+      "expected_rule_ids": [
+        "60115"
+      ],
+      "windows_event_ids": [
+        4740
+      ],
+      "mitre_attack": [
+        "T1110",
+        "T1531"
+      ],
+      "revert_required": false,
+      "verified": true,
+      "verified_evidence": "2026-10-20T04:17:45 rule=60115 severity=medium src_ip=192.168.49.1 agent=win-target",
+      "rule_facts": {
+        "60115": {
+          "level": 9,
+          "severity": "medium",
+          "description": "User account locked out (multiple login errors)",
+          "documents_in_index_now": 5
+        }
+      },
+      "latest_matching_alert_in_index": {
+        "60115": {
+          "agent": {
+            "name": "win-target"
+          },
+          "rule": {
+            "level": 9,
+            "description": "User account locked out (multiple login errors)",
+            "id": "60115"
+          },
+          "timestamp": "2026-10-20T08:01:04.647+0000"
+        }
+      }
+    },
+    {
+      "name": "user_account_created",
+      "title": "User Account Created (4720 -> 60109 MEDIUM)",
+      "description": "Create a temporary local user on the target. Windows logs 4720 and Wazuh rule 60109 'User account enabled or created' (level 8) fires - a MEDIUM alert that does NOT touch the lockout counter, so it is a safe default for the MEDIUM tier of a demo. Requires Administrator on the target: either set ADMIN_USER / ADMIN_PASS for the tool, or run the printed command yourself in an elevated PowerShell. The revert command deletes the account again and --state-check confirms it is gone.",
+      "expected_severity": "medium",
+      "expected_rule_ids": [
+        "60109"
+      ],
+      "windows_event_ids": [
+        4720
+      ],
+      "mitre_attack": [
+        "T1136"
+      ],
+      "revert_required": true,
+      "verified": false,
+      "verified_evidence": "UNVERIFIED by this tool: rule 60109 is present in the live index from a Windows-side action, but this tool does not hold an admin credential and has not driven the account creation itself.",
+      "rule_facts": {
+        "60109": {
+          "level": 8,
+          "severity": "medium",
+          "description": "User account enabled or created",
+          "documents_in_index_now": 5
+        }
+      },
+      "latest_matching_alert_in_index": {
+        "60109": {
+          "agent": {
+            "name": "win-target"
+          },
+          "rule": {
+            "level": 8,
+            "description": "User account enabled or created",
+            "id": "60109"
+          },
+          "timestamp": "2026-10-20T07:09:03.488+0000"
+        }
+      }
+    },
+    {
+      "name": "privileged_group_change",
+      "title": "Privileged Group Change (4732 -> 60154 HIGH)",
+      "description": "Add the test account to a privileged local group. Windows logs 4732 and Wazuh rule 60154 'Administrators Group Changed' (level 12) fires for the Administrators group (targetSid S-1-5-32-544). This is a LOCAL administrative action, so the event carries no source address and the alert shows src_ip '-' rather than the agent address. Requires Administrator on the target: either set ADMIN_USER / ADMIN_PASS for the tool, or run the printed command yourself in an elevated PowerShell. The revert command removes the account from the group again and is verified by --state-check.",
+      "expected_severity": "high",
+      "expected_rule_ids": [
+        "60154"
+      ],
+      "windows_event_ids": [
+        4732
+      ],
+      "mitre_attack": [
+        "T1098"
+      ],
+      "revert_required": true,
+      "verified": false,
+      "verified_evidence": "UNVERIFIED by this tool: rule 60154 is confirmed working end to end on this target (2026-10-20T06:27:01 and 06:27:40, memberSid S-1-5-21-3157694894-2919287776-405654444-1023, targetSid S-1-5-32-544) but it was driven from the Windows side with administrator rights. This tool does not hold an admin credential on the target, so it prints the command for an operator instead.",
+      "rule_facts": {
+        "60154": {
+          "level": 12,
+          "severity": "high",
+          "description": "Administrators Group Changed",
+          "documents_in_index_now": 2
+        }
+      },
+      "latest_matching_alert_in_index": {
+        "60154": {
+          "agent": {
+            "name": "win-target"
+          },
+          "rule": {
+            "level": 12,
+            "description": "Administrators Group Changed",
+            "id": "60154"
+          },
+          "timestamp": "2026-10-20T06:27:40.739+0000"
+        }
+      }
+    },
+    {
+      "name": "rdp_auth_failure_burst",
+      "title": "RDP Auth Failure Burst (4625 x8 -> 100100 HIGH)",
+      "description": "Eight failed RDP logons from one source IP inside 120 seconds trip the custom correlation rule 100100 (level 12 = HIGH). Safe: below the lockout threshold of 10.",
+      "expected_severity": "high",
+      "expected_rule_ids": [
+        "100100"
+      ],
+      "windows_event_ids": [
+        4625
+      ],
+      "mitre_attack": [
+        "T1110"
+      ],
+      "revert_required": false,
+      "verified": false,
+      "verified_evidence": "UNVERIFIED: the underlying mechanism is proven - 8 failed RDP logons produce 4625 and rule 60122 (verified 2026-10-20), and rule 100100 fires on 8 same-IP 4625 events (verified 2026-10-20T06:11:54). This exact combination has not yet been observed in a single run, so it is flagged unverified rather than claimed.",
+      "rule_facts": {
+        "100100": {
+          "level": 12,
+          "severity": "high",
+          "description": "XSIEM: Windows authentication failure burst (possible brute force)",
+          "documents_in_index_now": 33
+        }
+      },
+      "latest_matching_alert_in_index": {
+        "100100": {
+          "agent": {
+            "name": "win-target"
+          },
+          "rule": {
+            "level": 12,
+            "description": "XSIEM: Windows authentication failure burst (possible brute force)",
+            "id": "100100"
+          },
+          "timestamp": "2026-10-20T08:32:40.045+0000"
+        }
+      }
+    },
+    {
+      "name": "smb_auth_failure_burst",
+      "title": "SMB Auth Failure Burst (4625 x8 -> 100100 HIGH)",
+      "description": "Eight failed SMB logons from one source IP inside 120 seconds trip the custom correlation rule 100100 'XSIEM: Windows authentication failure burst' (level 12 = HIGH). Safe: 8 is below the target's lockout threshold of 10, so the account is not locked. NOTE: the stock rule 60204 'Multiple Windows Logon Failures' (level 10 = MEDIUM) is SUPPRESSED while 100100 exists. Wazuh 4.9.2 keeps ONE composite frequency counter per matched event stream, so every frequency rule counting the same 4625 events competes for it and only one can fire. Measured over 8+ bursts, using if_matched_group made the winner non-deterministic (100100 won 7 times, 60204 once); rule 100100 now uses if_matched_sid 60122 and won 4 out of 4 consecutive bursts. Use the account_lockout payload (rule 60115) for the MEDIUM tier.",
+      "expected_severity": "high",
+      "expected_rule_ids": [
+        "100100"
+      ],
+      "windows_event_ids": [
+        4625
+      ],
+      "mitre_attack": [
+        "T1110"
+      ],
+      "revert_required": false,
+      "verified": true,
+      "verified_evidence": "2026-10-20T07:05:26 rule=100100 level=12 severity=high src_ip=192.168.49.1 agent=win-target (8 failures as xsiem_test via the tool); also 06:53:37, 06:55:57, 06:58:24, 07:00:52 - 4/4 consecutive bursts",
+      "rule_facts": {
+        "100100": {
+          "level": 12,
+          "severity": "high",
+          "description": "XSIEM: Windows authentication failure burst (possible brute force)",
+          "documents_in_index_now": 33
+        }
+      },
+      "latest_matching_alert_in_index": {
+        "100100": {
+          "agent": {
+            "name": "win-target"
+          },
+          "rule": {
+            "level": 12,
+            "description": "XSIEM: Windows authentication failure burst (possible brute force)",
+            "id": "100100"
+          },
+          "timestamp": "2026-10-20T08:32:40.045+0000"
+        }
+      }
+    },
+    {
+      "name": "ssh_auth_failure_burst",
+      "title": "SSH Auth Failure Burst (4625 x8 -> 100100 HIGH)",
+      "description": "Eight failed SSH logons from one source IP inside 120 seconds trip the custom correlation rule 100100 (level 12 = HIGH). Safe: below the lockout threshold of 10. Use account_lockout for the MEDIUM tier.",
+      "expected_severity": "high",
+      "expected_rule_ids": [
+        "100100"
+      ],
+      "windows_event_ids": [
+        4625
+      ],
+      "mitre_attack": [
+        "T1110"
+      ],
+      "revert_required": false,
+      "verified": true,
+      "verified_evidence": "2026-10-20 rule=100100 level=12 severity=high agent=win-target after SSH failure bursts",
+      "rule_facts": {
+        "100100": {
+          "level": 12,
+          "severity": "high",
+          "description": "XSIEM: Windows authentication failure burst (possible brute force)",
+          "documents_in_index_now": 33
+        }
+      },
+      "latest_matching_alert_in_index": {
+        "100100": {
+          "agent": {
+            "name": "win-target"
+          },
+          "rule": {
+            "level": 12,
+            "description": "XSIEM: Windows authentication failure burst (possible brute force)",
+            "id": "100100"
+          },
+          "timestamp": "2026-10-20T08:32:40.045+0000"
+        }
+      }
+    }
+  ],
+  "verified_alerts": {
+    "description": "Every rule id actually observed to arrive in /api/alerts, with the captured source IP and captured raw-log length, so every claim can be cross-checked against the live index.",
+    "rules_observed": [
+      {
+        "rule_id": "100100",
+        "level": 12,
+        "severity": "high",
+        "description": "XSIEM: Windows authentication failure burst (possible brute force)",
+        "documents_in_index": 33,
+        "newest_timestamp": "2026-10-20T08:32:40.045+0000",
+        "captured_src_ip": "192.168.49.128",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 20045,
+        "has_raw_event": true,
+        "log_source": "previous_output"
+      },
+      {
+        "rule_id": "100205",
+        "level": 12,
+        "severity": "high",
+        "description": "PROBE E level 12 with authentication_failed in group",
+        "documents_in_index": 1,
+        "newest_timestamp": "2026-10-20T05:49:42.281+0000",
+        "captured_src_ip": "192.168.49.128",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 2863,
+        "has_raw_event": true,
+        "log_source": "full_log"
+      },
+      {
+        "rule_id": "100207",
+        "level": 12,
+        "severity": "high",
+        "description": "PROBE G level 12 no group attribute",
+        "documents_in_index": 1,
+        "newest_timestamp": "2026-10-20T05:52:48.670+0000",
+        "captured_src_ip": "192.168.49.128",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 2863,
+        "has_raw_event": true,
+        "log_source": "full_log"
+      },
+      {
+        "rule_id": "100210",
+        "level": 12,
+        "severity": "high",
+        "description": "PROBE J level 12 NO same_field",
+        "documents_in_index": 1,
+        "newest_timestamp": "2026-10-20T05:56:51.121+0000",
+        "captured_src_ip": "192.168.49.128",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 2863,
+        "has_raw_event": true,
+        "log_source": "full_log"
+      },
+      {
+        "rule_id": "60154",
+        "level": 12,
+        "severity": "high",
+        "description": "Administrators Group Changed",
+        "documents_in_index": 2,
+        "newest_timestamp": "2026-10-20T06:27:40.739+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "60204",
+        "level": 10,
+        "severity": "medium",
+        "description": "Multiple Windows Logon Failures",
+        "documents_in_index": 4,
+        "newest_timestamp": "2026-10-20T06:46:19.551+0000",
+        "captured_src_ip": "192.168.49.128",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 19712,
+        "has_raw_event": true,
+        "log_source": "previous_output"
+      },
+      {
+        "rule_id": "61110",
+        "level": 10,
+        "severity": "medium",
+        "description": "Multiple System error events",
+        "documents_in_index": 101,
+        "newest_timestamp": "2026-10-20T03:45:04.358+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 23491,
+        "has_raw_event": true,
+        "log_source": "previous_output"
+      },
+      {
+        "rule_id": "60115",
+        "level": 9,
+        "severity": "medium",
+        "description": "User account locked out (multiple login errors)",
+        "documents_in_index": 5,
+        "newest_timestamp": "2026-10-20T08:01:04.647+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "60109",
+        "level": 8,
+        "severity": "medium",
+        "description": "User account enabled or created",
+        "documents_in_index": 5,
+        "newest_timestamp": "2026-10-20T07:09:03.488+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "60110",
+        "level": 8,
+        "severity": "medium",
+        "description": "User account changed",
+        "documents_in_index": 10,
+        "newest_timestamp": "2026-10-20T07:09:03.503+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "60111",
+        "level": 8,
+        "severity": "medium",
+        "description": "User account disabled or deleted",
+        "documents_in_index": 4,
+        "newest_timestamp": "2026-10-20T07:09:01.381+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "60112",
+        "level": 8,
+        "severity": "medium",
+        "description": "Windows Audit Policy changed",
+        "documents_in_index": 3,
+        "newest_timestamp": "2026-10-20T04:08:57.696+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "19004",
+        "level": 7,
+        "severity": "medium",
+        "description": "SCA summary: CIS Microsoft Windows 11 Enterprise Benchmark v1.0.0: Score less than 50% (33)",
+        "documents_in_index": 2,
+        "newest_timestamp": "2026-10-20T04:10:51.002+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "19007",
+        "level": 7,
+        "severity": "medium",
+        "description": "CIS Microsoft Windows 11 Enterprise Benchmark v1.0.0: Ensure 'Select when Preview Builds and Feature Updates are received' is set to 'Enabled: 180 or more days'.",
+        "documents_in_index": 307,
+        "newest_timestamp": "2026-10-19T19:38:25.159+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "92652",
+        "level": 6,
+        "severity": "low",
+        "description": "Successful Remote Logon Detected - User:\\xsiem_test - NTLM authentication, possible pass-the-hash attack.",
+        "documents_in_index": 125,
+        "newest_timestamp": "2026-10-20T08:49:11.151+0000",
+        "captured_src_ip": "192.168.49.128",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 3483,
+        "has_raw_event": true,
+        "log_source": "full_log"
+      },
+      {
+        "rule_id": "92657",
+        "level": 6,
+        "severity": "low",
+        "description": "Successful Remote Logon Detected - User:\\xsiem_test - NTLM authentication, possible pass-the-hash attack - Possible RDP connection. Verify that kali is allowed to perform RDP connections",
+        "documents_in_index": 10,
+        "newest_timestamp": "2026-10-20T08:49:09.885+0000",
+        "captured_src_ip": "192.168.49.128",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 3502,
+        "has_raw_event": true,
+        "log_source": "full_log"
+      },
+      {
+        "rule_id": "19003",
+        "level": 5,
+        "severity": "low",
+        "description": "SCA summary: CIS Benchmark for Amazon Linux 2023 Benchmark v1.0.0.: Score less than 80% (52)",
+        "documents_in_index": 2,
+        "newest_timestamp": "2026-10-19T18:31:00.884+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": null,
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "60104",
+        "level": 5,
+        "severity": "low",
+        "description": "Windows audit failure event",
+        "documents_in_index": 3,
+        "newest_timestamp": "2026-10-20T04:28:28.010+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "60122",
+        "level": 5,
+        "severity": "low",
+        "description": "Logon Failure - Unknown user or bad password",
+        "documents_in_index": 371,
+        "newest_timestamp": "2026-10-20T08:43:13.127+0000",
+        "captured_src_ip": "192.168.49.128",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "60133",
+        "level": 5,
+        "severity": "low",
+        "description": "User account unlocked",
+        "documents_in_index": 2,
+        "newest_timestamp": "2026-10-20T07:09:03.473+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "60143",
+        "level": 5,
+        "severity": "low",
+        "description": "Security Enabled Local Group Created ",
+        "documents_in_index": 1,
+        "newest_timestamp": "2026-10-20T03:49:14.158+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "60144",
+        "level": 5,
+        "severity": "low",
+        "description": "Security Enabled Local Group Member Added S-1-5-21-3157694894-2919287776-405654444-1023",
+        "documents_in_index": 1,
+        "newest_timestamp": "2026-10-20T03:49:15.229+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "60145",
+        "level": 5,
+        "severity": "low",
+        "description": "Security Enabled Local Group Member Removed S-1-5-21-3157694894-2919287776-405654444-1023",
+        "documents_in_index": 1,
+        "newest_timestamp": "2026-10-20T03:49:18.567+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "60146",
+        "level": 5,
+        "severity": "low",
+        "description": "Security Enabled Local Group Deleted",
+        "documents_in_index": 1,
+        "newest_timestamp": "2026-10-20T03:49:18.569+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "60160",
+        "level": 5,
+        "severity": "low",
+        "description": "Domain Users Group Changed",
+        "documents_in_index": 2,
+        "newest_timestamp": "2026-10-20T04:38:59.813+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "60702",
+        "level": 5,
+        "severity": "low",
+        "description": "The VSS service is shutting down due to idle timeout.",
+        "documents_in_index": 1,
+        "newest_timestamp": "2026-10-19T20:09:10.306+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "61020",
+        "level": 5,
+        "severity": "low",
+        "description": ".NET Runtime - CLR 2.0 does not support profilers written for CLR 1.x.",
+        "documents_in_index": 2,
+        "newest_timestamp": "2026-10-20T07:48:11.090+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "61102",
+        "level": 5,
+        "severity": "low",
+        "description": "Windows System error event",
+        "documents_in_index": 723,
+        "newest_timestamp": "2026-10-20T08:21:13.134+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "61109",
+        "level": 5,
+        "severity": "low",
+        "description": "Name resolution for the name opencode.ai timed out",
+        "documents_in_index": 1,
+        "newest_timestamp": "2026-10-19T20:00:21.339+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "61138",
+        "level": 5,
+        "severity": "low",
+        "description": "New Windows Service Created",
+        "documents_in_index": 2,
+        "newest_timestamp": "2026-10-20T04:10:49.128+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "62109",
+        "level": 5,
+        "severity": "low",
+        "description": "Windows Defender: Antimalware scan was stopped before it finished",
+        "documents_in_index": 1,
+        "newest_timestamp": "2026-10-20T07:32:14.850+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "62154",
+        "level": 5,
+        "severity": "low",
+        "description": "Windows Defender: Antimalware platform feature configuration changed",
+        "documents_in_index": 1,
+        "newest_timestamp": "2026-10-20T05:52:23.119+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "60228",
+        "level": 4,
+        "severity": "low",
+        "description": "A scheduled task was created",
+        "documents_in_index": 9,
+        "newest_timestamp": "2026-10-20T08:04:17.215+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "60608",
+        "level": 4,
+        "severity": "low",
+        "description": "Summary event of the report's signatures.",
+        "documents_in_index": 239,
+        "newest_timestamp": "2026-10-20T08:04:00.162+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "91816",
+        "level": 4,
+        "severity": "low",
+        "description": "Powershell script querying system environment variables",
+        "documents_in_index": 5,
+        "newest_timestamp": "2026-10-20T07:12:42.180+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "19008",
+        "level": 3,
+        "severity": "low",
+        "description": "CIS Microsoft Windows 11 Enterprise Benchmark v1.0.0: Ensure 'Manage preview builds' is set to 'Disabled'.",
+        "documents_in_index": 177,
+        "newest_timestamp": "2026-10-19T19:38:25.110+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "19009",
+        "level": 3,
+        "severity": "low",
+        "description": "CIS Microsoft Windows 11 Enterprise Benchmark v1.0.0: Ensure 'Select when Quality Updates are received' is set to 'Enabled: 0 days'.",
+        "documents_in_index": 95,
+        "newest_timestamp": "2026-10-19T19:38:25.174+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "19010",
+        "level": 3,
+        "severity": "low",
+        "description": "CIS Microsoft Windows 11 Enterprise Benchmark v1.0.0: Ensure 'Audit Other Object Access Events' is set to 'Success and Failure'.: Status changed from failed to passed",
+        "documents_in_index": 2,
+        "newest_timestamp": "2026-10-20T04:10:44.990+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "501",
+        "level": 3,
+        "severity": "low",
+        "description": "New wazuh agent connected.",
+        "documents_in_index": 1,
+        "newest_timestamp": "2026-10-19T19:37:57.149+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": null,
+        "captured_log_length": 40,
+        "has_raw_event": true,
+        "log_source": "full_log"
+      },
+      {
+        "rule_id": "502",
+        "level": 3,
+        "severity": "low",
+        "description": "Wazuh server started.",
+        "documents_in_index": 23,
+        "newest_timestamp": "2026-10-20T08:14:48.343+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": null,
+        "captured_log_length": 23,
+        "has_raw_event": true,
+        "log_source": "full_log"
+      },
+      {
+        "rule_id": "503",
+        "level": 3,
+        "severity": "low",
+        "description": "Wazuh agent started.",
+        "documents_in_index": 2,
+        "newest_timestamp": "2026-10-20T04:10:16.190+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 40,
+        "has_raw_event": true,
+        "log_source": "full_log"
+      },
+      {
+        "rule_id": "506",
+        "level": 3,
+        "severity": "low",
+        "description": "Wazuh agent stopped.",
+        "documents_in_index": 2,
+        "newest_timestamp": "2026-10-20T04:10:15.639+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 40,
+        "has_raw_event": true,
+        "log_source": "full_log"
+      },
+      {
+        "rule_id": "60106",
+        "level": 3,
+        "severity": "low",
+        "description": "Windows Logon Success",
+        "documents_in_index": 438,
+        "newest_timestamp": "2026-10-20T08:48:02.313+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "60137",
+        "level": 3,
+        "severity": "low",
+        "description": "Windows User Logoff",
+        "documents_in_index": 185,
+        "newest_timestamp": "2026-10-20T08:49:11.152+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "60200",
+        "level": 3,
+        "severity": "low",
+        "description": "IIS NetworkCleartext Logon Success",
+        "documents_in_index": 35,
+        "newest_timestamp": "2026-10-20T08:14:51.669+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "60642",
+        "level": 3,
+        "severity": "low",
+        "description": "Software protection service scheduled successfully.",
+        "documents_in_index": 50,
+        "newest_timestamp": "2026-10-20T08:43:51.878+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "60798",
+        "level": 3,
+        "severity": "low",
+        "description": "The database engine attached a database.",
+        "documents_in_index": 1,
+        "newest_timestamp": "2026-10-20T07:32:00.444+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "60805",
+        "level": 3,
+        "severity": "low",
+        "description": "The database engine is starting a new instance.",
+        "documents_in_index": 1,
+        "newest_timestamp": "2026-10-20T07:32:00.327+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "60807",
+        "level": 3,
+        "severity": "low",
+        "description": "The database engine is initiating recovery steps.",
+        "documents_in_index": 1,
+        "newest_timestamp": "2026-10-20T07:32:00.354+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "60808",
+        "level": 3,
+        "severity": "low",
+        "description": "The database engine is replaying log file C:\\Winnt\\system32\\wins\\j50.log.",
+        "documents_in_index": 1,
+        "newest_timestamp": "2026-10-20T07:32:00.375+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "60809",
+        "level": 3,
+        "severity": "low",
+        "description": "The database engine has completed recovery steps.",
+        "documents_in_index": 1,
+        "newest_timestamp": "2026-10-20T07:32:00.397+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "61104",
+        "level": 3,
+        "severity": "low",
+        "description": "Service startup type was changed",
+        "documents_in_index": 18,
+        "newest_timestamp": "2026-10-20T04:41:41.336+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "62107",
+        "level": 3,
+        "severity": "low",
+        "description": "Windows Defender: Antimalware scan started",
+        "documents_in_index": 2,
+        "newest_timestamp": "2026-10-20T08:25:51.776+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "62108",
+        "level": 3,
+        "severity": "low",
+        "description": "Windows Defender: Antimalware scan finished",
+        "documents_in_index": 1,
+        "newest_timestamp": "2026-10-20T08:27:37.063+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "62120",
+        "level": 3,
+        "severity": "low",
+        "description": "Windows Defender: Antimalware platform deleted history of malware and other potentially unwanted software",
+        "documents_in_index": 1,
+        "newest_timestamp": "2026-10-20T07:32:02.677+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "62128",
+        "level": 3,
+        "severity": "low",
+        "description": "Windows Defender: Antimalware platform is running and in a healthy state",
+        "documents_in_index": 5,
+        "newest_timestamp": "2026-10-20T08:23:49.580+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "62130",
+        "level": 3,
+        "severity": "low",
+        "description": "Windows Defender: Antimalware definitions updated successfully",
+        "documents_in_index": 2,
+        "newest_timestamp": "2026-10-20T05:52:23.118+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "62138",
+        "level": 3,
+        "severity": "low",
+        "description": "Windows Defender: Antimalware engine used Dynamic Signature Service to get additional definitions",
+        "documents_in_index": 1,
+        "newest_timestamp": "2026-10-20T04:10:20.174+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "657",
+        "level": 3,
+        "severity": "low",
+        "description": "Active response: restart-wazuh.exe - add",
+        "documents_in_index": 1,
+        "newest_timestamp": "2026-10-19T19:38:00.282+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": null,
+        "captured_log_length": 204,
+        "has_raw_event": true,
+        "log_source": "full_log"
+      },
+      {
+        "rule_id": "67023",
+        "level": 3,
+        "severity": "low",
+        "description": "Non service account logged off.",
+        "documents_in_index": 54,
+        "newest_timestamp": "2026-10-20T08:14:51.683+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "67024",
+        "level": 3,
+        "severity": "low",
+        "description": "Service logon event registered from non standard service account.",
+        "documents_in_index": 54,
+        "newest_timestamp": "2026-10-20T08:14:51.650+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "67027",
+        "level": 3,
+        "severity": "low",
+        "description": "A process was created.",
+        "documents_in_index": 17350,
+        "newest_timestamp": "2026-10-20T08:14:08.729+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "67028",
+        "level": 3,
+        "severity": "low",
+        "description": "Special privileges assigned to new logon.",
+        "documents_in_index": 57,
+        "newest_timestamp": "2026-10-20T08:14:51.650+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      },
+      {
+        "rule_id": "91813",
+        "level": 3,
+        "severity": "low",
+        "description": "Powershell script deleted a registry key from an object",
+        "documents_in_index": 1,
+        "newest_timestamp": "2026-10-20T04:11:16.214+0000",
+        "captured_src_ip": "-",
+        "captured_agent_ip": "192.168.49.1",
+        "captured_log_length": 0,
+        "has_raw_event": false,
+        "log_source": "none"
+      }
+    ],
+    "rule_id_list": [
+      "100100",
+      "100205",
+      "100207",
+      "100210",
+      "19003",
+      "19004",
+      "19007",
+      "19008",
+      "19009",
+      "19010",
+      "501",
+      "502",
+      "503",
+      "506",
+      "60104",
+      "60106",
+      "60109",
+      "60110",
+      "60111",
+      "60112",
+      "60115",
+      "60122",
+      "60133",
+      "60137",
+      "60143",
+      "60144",
+      "60145",
+      "60146",
+      "60154",
+      "60160",
+      "60200",
+      "60204",
+      "60228",
+      "60608",
+      "60642",
+      "60702",
+      "60798",
+      "60805",
+      "60807",
+      "60808",
+      "60809",
+      "61020",
+      "61102",
+      "61104",
+      "61109",
+      "61110",
+      "61138",
+      "62107",
+      "62108",
+      "62109",
+      "62120",
+      "62128",
+      "62130",
+      "62138",
+      "62154",
+      "657",
+      "67023",
+      "67024",
+      "67027",
+      "67028",
+      "91813",
+      "91816",
+      "92652",
+      "92657"
+    ]
+  },
+  "findings": [
+    {
+      "id": "F1",
+      "title": "Stock rule 60204 (MEDIUM) cannot co-fire with 100100 (HIGH)",
+      "detail": "Wazuh 4.9.2 keeps ONE composite frequency counter per matched event stream. Rules that count the same 4625 events compete for it and only one can fire. IMPORTANT CORRECTION to the earlier measurement: the 1-in-5 loss rate was measured while 100100 used <if_matched_group>authentication_failed</if_matched_group>. With the shipped form <if_matched_sid>60122</if_matched_sid> the counter is owned by 100100 alone - measured 8 of 8 consecutive bursts with 100100 and 0 of 8 for 60204 BEFORE any suppression was added. 60204 is now additionally set to level 0 (see F7) so the contest cannot happen at all.",
+      "impact": "The MEDIUM tier is delivered by rule 60115 (account lockout), 60109 / 60111 / 19004."
+    },
+    {
+      "id": "F2",
+      "title": "if_matched_sid on a parent rule never fires",
+      "detail": "60105 is the parent of 60122 and never matches terminally, so a counter on it stays at zero. The original 100100 used if_matched_sid 60105 and produced 0 alerts across 21 failed logons. The working form counts on 60122. if_sid is not an option - Wazuh rejects it with 'Invalid use of frequency/context options. Missing if_matched'.",
+      "impact": "Fixed in config/custom-rules/xsiem-rules.xml."
+    },
+    {
+      "id": "F3",
+      "title": "Severity filter applied after the limit slice (backend bug) - FIXED",
+      "detail": "XSIEM's /api/alerts applied severity and search filters in Python after the indexer had already sliced to `limit`, so ?limit=3&severity=medium returned 0.",
+      "impact": "FIXED - the filters are now pushed into the OpenSearch query. total is the count matching the filters before the limit, data is the limited slice. The response shape is unchanged and /api/stats now agrees with /api/alerts?severity= exactly.",
+      "before": {
+        "limit=3&severity=medium": 0,
+        "limit=1000&severity=medium": 30
+      },
+      "after": {
+        "limit=3&severity=medium": "total=434 data=3",
+        "limit=1000&severity=medium": "total=434 data=434"
+      }
+    },
+    {
+      "id": "F4",
+      "title": "Account lockout counter is cumulative and cross-protocol",
+      "detail": "The target's lockout policy (threshold 10, 10 minute window) counts failed logons across SMB, SSH and RDP together. While an account is locked, Windows OpenSSH resets the connection instead of refusing the password, which reads like a network fault.",
+      "impact": "The tool detects the lockout as a distinct state (including the Windows 1909 signature) and refuses to report those failures as new alerts. It now refuses >9 attempts on the real account unless --i-know-this-locks is given, and the default burst is exactly 8."
+    },
+    {
+      "id": "F5",
+      "title": "netexec failed-auth path is unusable on this target",
+      "detail": "netexec reports 'Connection Error: The NETBIOS connection with the remote host timed out' for failed authentication. smbclient and rpcclient return a real NT_STATUS_LOGON_FAILURE.",
+      "impact": "Failed-auth payloads use smbclient / rpcclient; netexec is used for successful auth."
+    },
+    {
+      "id": "F6",
+      "title": "RDP 3389 was filtered until the Windows side opened it",
+      "detail": "RDP is now reachable. Failed RDP auth produces 4625 -> 60122; successful RDP auth produces 4624 -> 60106 plus 92657.",
+      "impact": "RDP payloads are in the catalogue."
+    },
+    {
+      "id": "F7",
+      "title": "A local rule file CANNOT override a stock rule in Wazuh 4.9.2",
+      "detail": "Wazuh logs: 'WARNING: (7612): Rule ID '67027' is duplicated. Only the first occurrence will be considered.' The stock ruleset is loaded first, so a redefinition of an existing id in /var/ossec/etc/rules is simply ignored - whether or not it repeats the stock rule's matching conditions. To silence 67027 and 60204 the stock ruleset files themselves have to be patched: 0955-WEF-baseline_rules.xml (67027 -> level 0) and 0580-win-security_rules.xml (60204 -> level 0). Each patched copy differs from the stock file by exactly one line and is bind-mounted over the original so a container recreate cannot lose the patch.",
+      "impact": "The 4688 process-creation flood is stopped and the 60204/100100 contest is removed, while the raw 4688 events stay indexed for the Investigation view."
+    },
+    {
+      "id": "F8",
+      "title": "src_ip came from agent metadata, not from the event (FIXED)",
+      "detail": "The formatter read data.srcip, a key that does not exist in the indexed document, and fell back to agent.ip - the address of the machine that REPORTED the event. The real field is data.win.eventdata.ipAddress (lower-case 'i'), which holds the address that originated the event: 192.168.49.128 for a remote logon. The indexed document for a 4625 has no src ip under data.win.system either.",
+      "impact": "FIXED - src_ip is now taken from data.win.eventdata.ipAddress, then data.win.system.ipAddress, and falls back to '-' (NOT the agent address) so a local administrative action is distinguishable from a remote attack."
+    },
+    {
+      "id": "F9",
+      "title": "The log field was empty for correlation alerts (FIXED)",
+      "detail": "Diffing a stored PROBE document against a stored 100100 document showed the single decisive difference: 100100 has no `full_log` but DOES have `previous_output` (a ~20 KB string holding the aggregated raw event), while the single-event PROBE rules kept `full_log`. Wazuh stores the body of an aggregated correlation in `previous_output`, so the application - which only ever read `full_log` - returned an empty string for every correlation alert. The 500-character cap was a second, separate issue.",
+      "impact": "FIXED - the formatter now falls back to previous_output, and the cap was raised from 500 to 4000 characters so the Investigation view can show a whole event."
+    },
+    {
+      "id": "F10",
+      "title": "Script Block Logging does not capture SSH-spawned PowerShell",
+      "detail": "Rule 91813 fires for interactive sessions (proven: 2026-10-20T04:11:16 from a Windows-side probe using 'Remove-Item -Path HKLM:\\SOFTWARE\\XSIEMTest -Recurse -Force'). But the agent produced ZERO 4104 documents for PowerShell started through sshd, while the newest 4104 in the index is the Windows OpenCode session's own interactive script. The channel itself works and the script body IS captured for interactive sessions.",
+      "impact": "The powershell_registry_delete payload is therefore operator-assisted: the tool prints the exact command for an interactive session and then verifies the resulting alert."
+    }
+  ],
+  "unverified": [
+    {
+      "payload": "powershell_registry_delete",
+      "reason": "Rule 91813 itself is proven to fire in this deployment (2026-10-20T04:11:16, channel Microsoft-Windows-PowerShell/Operational) but the script blocks triggered by this tool over SSH were not captured - 0 documents in the index mention the script's registry path. Needs a Windows-side check: restart the Wazuh agent so it re-reads ossec.conf, and confirm the Script Block Logging policy."
+    },
+    {
+      "payload": "rdp_auth_failure_burst",
+      "reason": "The mechanism is proven (RDP failures produce 4625/60122; 8 same-IP 4625 events trip 100100) but this exact combination has not been observed in a single run."
+    }
+  ],
+  "files": {
+    "tool": "xsiem-payloads.sh",
+    "library": "xsiem-payloads.json",
+    "ground_truth": "GROUND-TRUTH.md",
+    "custom_rules": "/home/kali/wazuh-docker/single-node/config/custom-rules/xsiem-rules.xml"
+  }
+}

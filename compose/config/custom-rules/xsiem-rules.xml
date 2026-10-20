@@ -1,0 +1,87 @@
+<!--
+  XSIEM custom rules
+  ==================
+  Additive escalation rules for the XSIEM dashboard.
+
+  Why these exist
+  +++++++++++++++
+  The XSIEM backend maps Wazuh rule levels to dashboard severities:
+      level >= 12  -> HIGH   (triggers email alerts + toast notifications)
+      level >= 7   -> MEDIUM
+      else         -> LOW
+
+  With the stock Wazuh 4.9.2 ruleset the brute-force path only reaches level 5
+  ("Windows Logon Failure" 60105 / "Logon Failure - Unknown user or bad
+  password" 60122), so it would surface as LOW and the HIGH severity code path
+  in XSIEM would never fire.
+
+  These rules ADD companion HIGH severity alerts. They do not modify, disable
+  or override any stock rule - the original level 5 alerts are still produced
+  and still indexed.
+
+  To revert: delete this file, remove the bind mount from
+  docker-compose.override.yml, and restart the manager.
+
+  Rule id range 100100+ follows the local rules convention already used by
+  /var/ossec/etc/rules/local_rules.xml
+-->
+
+<group name="xsiem,authentication,attack,">
+
+  <!--
+    Windows logon failure burst -> HIGH.
+
+    WHY <if_matched_sid>60122</if_matched_sid> AND NOT 60105:
+    60105 is a PARENT rule. Its children 60122-60129 match the 4625 event
+    first and consume it, so 60105 is never the terminal match. A Wazuh
+    if_matched_sid counter only increments for the rule that actually matched,
+    so a counter on 60105 stays at zero and the rule never fires. This was
+    confirmed empirically: 21 failed logons produced 21x rule 60122 and 0
+    alerts for the original 100100.
+
+    60122 ("Logon Failure - Unknown user or bad password") IS the terminal
+    match for a 4625 event, so counting on 60122 works.
+
+    WHY THE STOCK RULE 60204 STOPS FIRING:
+    Wazuh 4.9.2 keeps ONE composite frequency context per matched event
+    stream. Every frequency rule that counts the same events competes for
+    that single counter, so only one of them can fire. Stock 60204
+    ("Multiple Windows Logon Failures", level 10 = MEDIUM) counts the same
+    4625 events and is starved by this level 12 rule. Measured over 8+ bursts:
+    with <if_matched_group>authentication_failed</if_matched_group> the winner
+    was non-deterministic (100100 won 7 times, 60204 won once). With
+    <if_matched_sid>60122</if_matched_sid> the counter is owned by this rule
+    alone and it fired 4 out of 4 consecutive bursts.
+
+    The <same_field> element is copied verbatim from the stock 60204 rule.
+  -->
+  <rule id="100100" level="12" frequency="8" timeframe="120">
+    <if_matched_sid>60122</if_matched_sid>
+    <same_field>win.eventdata.ipAddress</same_field>
+    <description>XSIEM: Windows authentication failure burst (possible brute force)</description>
+    <options>no_full_log</options>
+    <group>authentication_failed,attack,brute_force,</group>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+  </rule>
+
+  <!--
+    SSH brute force.
+    Parent rule 5712 = "sshd: brute force trying to get access to the system"
+    (stock level 10, already frequency-correlated). Escalated to HIGH.
+
+    NOTE: this only fires for syslog-format sshd messages. The Windows
+    OpenSSH server writes to the OpenSSH/Operational event channel instead,
+    so on a Windows target use rule 100100 above.
+  -->
+  <rule id="100101" level="12">
+    <if_sid>5712</if_sid>
+    <description>XSIEM: SSH brute force attempt detected</description>
+    <group>attack,authentication_failed,brute_force,</group>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+  </rule>
+
+</group>
