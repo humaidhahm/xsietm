@@ -807,3 +807,450 @@ Things the Linux side should add, in this order of usefulness to a reader:
 --------------------------------------------------------------------------------
 APPENDIX — KALI LINUX SIDE APPENDS BELOW THIS LINE
 --------------------------------------------------------------------------------
+
+================================================================================
+ APPENDIX - KALI LINUX SIDE APPENDS BELOW THIS LINE
+================================================================================
+
+================================================================================
+APPENDIX - KALI LINUX SIDE
+================================================================================
+
+--------------------------------------------------------------------------------
+A1. REPOSITORY TREE
+--------------------------------------------------------------------------------
+xsietm/
+  .env.example              every variable the stack needs, placeholders only
+  .gitignore                secret / key / wordlist / VM-image / build rules
+  README.md                 quick start, known issues, safety notes
+  kali-trip-report.txt      this document
+  windows-endpoint/         the Windows half: agent installer, pre-flight
+                            checker, lockout reset, demo brief, README
+  siem-backend/             FastAPI backend
+    main.py                 REST API, Wazuh API auth, indexer queries
+    requirements.txt        fastapi, uvicorn, httpx, python-dotenv
+  siem-dashboard/           React 18 dashboard (Recharts + Tailwind)
+    package.json            scripts: start / build / test
+    package-lock.json       pinned dependency tree
+    tailwind.config.js      theme tokens matching the dark SOC look
+    postcss.config.js
+    public/index.html
+    src/                    App.jsx, components/, pages/, services/api.js,
+                            data/mockAlerts.js, index.css
+  tools/
+    xsiem-payloads.sh       the interactive payload tool (bash)
+    xsiem-payloads.json     the payload library (data only, no code changes
+                            needed to add a payload)
+    xsiem-payloads-USAGE.md full usage, catalogue, exit codes, examples
+    make-manifest.py        regenerates the manifest from the live index
+  compose/                  the Wazuh 4.9.2 single-node stack
+    deploy.sh               one-command bring-up: certs, authd cert, stack
+    docker-compose.yml      upstream single-node definition
+    docker-compose.override.yml  lab tuning: loopback-only web ports, memory
+                            caps, custom rules, patched ruleset files
+    generate-indexer-certs.yml
+    config/
+      certs.yml             certificate subject list
+      custom-rules/xsiem-rules.xml     the two custom Wazuh rules
+      ruleset-patches/      two stock ruleset files, each changed by one line
+      wazuh_cluster/wazuh_manager.conf
+      wazuh_dashboard/      opensearch_dashboards.yml, wazuh.yml.template
+      wazuh_indexer/        wazuh.indexer.yml, internal_users.yml
+  docs/
+    GROUND-TRUTH.md         the findings that shaped this lab
+    xsietool-manifest.json  generated manifest incl. verified_alerts
+    xsietool-manifest.md    the same, human readable
+
+Nothing under compose/config/wazuh_indexer_ssl_certs/ is committed: that
+directory is created at deploy time by compose/deploy.sh and holds the CA and
+every private key. It is covered by the existing *.pem / *.key ignore rules.
+
+--------------------------------------------------------------------------------
+A2. HOW TO RUN THE WHOLE THING FROM SCRATCH
+--------------------------------------------------------------------------------
+Prerequisites: Docker Engine + Compose v2, openssl, curl, jq, python3 3.11+,
+node 18+, and the agent MSI + rootCA.pem from windows-endpoint/.
+
+Step 1 - configure (no credential lives in the repository):
+    cp .env.example .env && $EDITOR .env
+    set -a; . ./.env; set +a
+
+Step 2 - start the Wazuh stack (manager + indexer + dashboard):
+    cd compose
+    cp ../.env .env
+    ./deploy.sh
+  deploy.sh: checks the credentials, generates the certificates on first run,
+  issues the manager's authd TLS certificate from the generated root CA, renders
+  the dashboard's wazuh.yml from a template, starts the stack and waits for the
+  indexer to report healthy.
+
+Step 3 - start the backend:
+    cd siem-backend
+    python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+    .venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 4000
+
+Step 4 - build and serve the dashboard:
+    cd siem-dashboard
+    npm install && npm run build
+    python3 -m http.server 3000 --bind 0.0.0.0 --directory build
+
+Step 5 - open it:
+    XSIEM dashboard   http://192.168.49.128:3000
+    XSIEM API         http://192.168.49.128:4000   (Swagger UI at /docs)
+    Wazuh dashboard   https://localhost/          (WAZUH_DASHBOARD_USER)
+    Wazuh API         https://localhost:55000     (WAZUH_API_USER)
+    Indexer           https://localhost:9200      (WAZUH_INDEXER_USER)
+
+--------------------------------------------------------------------------------
+A3. PAYLOAD CATALOGUE
+--------------------------------------------------------------------------------
+name                     severity  win evt  rule    what it does            verified  reverts
+smb_failed_logon         low       4625     60122    SMB logon, wrong pass   yes       n/a
+ssh_failed_logon         low       4625     60122    SSH logon, wrong pass   yes       n/a
+rdp_failed_logon         low       4625     60122    RDP logon, wrong pass   yes       n/a
+smb_successful_logon     low       4624     92652    SMB logon, valid pass   yes       n/a
+rdp_successful_logon     low       4624     92657    RDP logon, valid pass   yes       n/a
+scheduled_task_created   low       4698     60228    create + delete a task  yes       yes
+process_created          low       4688     67027    run a command over SSH  yes*      n/a
+powershell_registry_delete low     4104     91813    delete a registry key   yes**     n/a
+account_lockout          medium    4740     60115    11 failed logons        yes       no
+user_account_created     medium    4720     60109    create a local user     no***     yes
+privileged_group_change  high      4732     60154    add to Administrators  no***     yes
+smb_auth_failure_burst   high      4625     100100   8 failed SMB logons     yes       n/a
+ssh_auth_failure_burst   high      4625     100100   8 failed SSH logons     yes       n/a
+rdp_auth_failure_burst   high      4625     100100   8 failed RDP logons     no        n/a
+
+  *  process_created verifies that the 4688 document reached the INDEX, not that
+     an alert appeared: stock rule 67027 is set to level 0 on purpose so the
+     process-creation flood stops burying everything else. The raw event is still
+     indexed and readable in the Investigation view.
+  ** powershell_registry_delete is operator-assisted. Rule 91813 is proven to
+     fire, but only for an interactive session - the agent produced no 4104 at
+     all for PowerShell started through sshd. The tool prints the command for an
+     operator to run and then verifies the resulting alert.
+  *** operator-assisted and unverified by this tool: the Kali side deliberately
+     does not hold administrator rights on the monitored endpoint, so the tool
+     prints the command for the operator to run in an elevated PowerShell and
+     records the revert command. Set XSIEM_ADMIN_USER / XSIEM_ADMIN_PASSWORD
+     to let the tool run it itself.
+
+--------------------------------------------------------------------------------
+A4. EXACT NON-INTERACTIVE INVOCATIONS
+--------------------------------------------------------------------------------
+Everything below is reproducible; the tool prints the run id and the log path.
+
+  # LOW - one failed SMB logon
+  ./tools/xsiem-payloads.sh --payload smb_failed_logon --yes
+
+  # LOW - successful RDP logon
+  ./tools/xsiem-payloads.sh --payload rdp_successful_logon --yes
+
+  # LOW - scheduled task, created and then deleted again
+  ./tools/xsiem-payloads.sh --payload scheduled_task_created --yes
+
+  # MEDIUM - account lockout. Locks xsiem_test for 10 minutes, so the explicit
+  # flag is required (the tool refuses more than 9 attempts otherwise).
+  ./tools/xsiem-payloads.sh --payload account_lockout --yes --i-know-this-locks
+
+  # HIGH - 8 failed SMB logons from one source IP inside 120 s
+  ./tools/xsiem-payloads.sh --payload smb_auth_failure_burst --yes
+
+  # HIGH - same over SSH
+  ./tools/xsiem-payloads.sh --payload ssh_auth_failure_burst --yes --timeout 120
+
+  # MEDIUM / HIGH - operator-assisted: the tool prints the command to run in an
+  # elevated PowerShell on the Windows host and then verifies the alert.
+  ./tools/xsiem-payloads.sh --payload user_account_created --yes
+  ./tools/xsiem-payloads.sh --payload privileged_group_change --yes
+
+Flags:
+  --target IP              target host (default $XSIEM_TARGET)
+  --payload NAME           payload to run
+  --severity low|medium|high  filter for --list
+  --set key=value          override a parameter (repeatable)
+  --timeout SECONDS        verification timeout (default 60)
+  --api URL                XSIEM API base (default $XSIEM_API_URL)
+  --yes / -y               assume yes
+  --no-verify              execute without verifying
+  --verify-only            report what has arrived recently
+  --cleanup                revert every change the tool recorded
+  --state-check            confirm the target is back to its baseline
+  --list [--format json]   the catalogue
+  --dry-run                print what would run, send nothing
+  --i-have-authorization   allow a target outside the lab subnet
+  --i-know-this-locks      allow more than 9 failed logons at the real account
+  --no-tui / --no-color    plain menu / no colour
+
+Exit codes:
+  0  success - the payload ran and the expected alert was verified
+  1  usage error (unknown payload, bad parameter, missing secret)
+  2  the payload ran but the expected alert did not arrive before the timeout
+  3  the payload itself failed to execute
+  4  refused by a safety check (target outside the lab, too many attempts,
+     missing secret)
+
+Example verification output:
+
+  ================================================================================
+   executing payload: smb_auth_failure_burst
+  ================================================================================
+  [i] alerts before: 20459
+  [+] payload executed
+  [+] Verification succeeded - 1 new high alert(s) arrived.
+
+  New alerts
+    TIMESTAMP                  RULE     SEVERITY DESCRIPTION                        SOURCE IP        AGENT
+    -------------------------- -------- -------- ---------------------------------- ---------------- ----------
+    2026-10-20T08:32:40  100100      HIGH    XSIEM: Windows authentication fail  192.168.49.128   win-target
+
+--------------------------------------------------------------------------------
+A5. FASTAPI ENDPOINT REFERENCE
+--------------------------------------------------------------------------------
+GET /health
+  {
+    "backend": "ok",
+    "wazuh": "ok",
+    "indexer": "green",
+    "authenticated": true,
+    "email": false,
+    "timestamp": "2026-10-20T14:09:27.456927"
+  }
+  backend  - the API process is up
+  wazuh    - the manager API answered a fresh authentication
+  indexer  - the real OpenSearch cluster health (green / yellow / red /
+             unreachable). This drives the dashboard's status panel, which
+             previously showed two hardcoded strings.
+  email    - true once real SMTP credentials are configured
+  On failure it returns 200 with "wazuh": "error" and a "detail" field.
+
+GET /api/stats
+  { "success": true, "total": 20459, "high": 38, "medium": 441, "low": 19980 }
+  Severity buckets come from the same level ranges the alert formatter uses
+  (>=12 high, 7-11 medium, else low), so /api/stats and /api/alerts?severity=
+  always agree.
+
+GET /api/agents
+  {
+    "success": true,
+    "total": 2,
+    "data": [
+      { "id": "000", "name": "wazuh.manager", "status": "active",
+        "ip": "127.0.0.1", "os": "Amazon Linux", "version": "Wazuh v4.9.2" },
+      { "id": "001", "name": "win-target", "status": "active",
+        "ip": "192.168.49.1", "os": "Microsoft Windows 11 Pro",
+        "version": "Wazuh v4.9.2" }
+    ]
+  }
+
+GET /api/alerts?limit=&severity=&search=
+  {
+    "success": true,
+    "total": 20459,
+    "data": [
+      {
+        "id": "bNRwWKEBKI_4OfOA_C_U",
+        "timestamp": "2026-10-20T08:32:40.045+0000",
+        "rule_id": "100100",
+        "rule": "XSIEM: Windows authentication failure burst (possible brute force)",
+        "severity": "high",
+        "level": 12,
+        "src_ip": "192.168.49.128",
+        "dst_ip": "-",
+        "agent": "win-target",
+        "status": "open",
+        "desc": "...",
+        "log": "<the raw event, up to 4000 characters>",
+        "rule_id": "100100",
+        "groups": ["authentication_failed", "attack", "brute_force"]
+      }
+    ]
+  }
+  limit     - 1..1000, the size of the returned slice
+  severity  - low | medium | high | all
+  search    - case-insensitive substring over the event source address, the
+              agent address, the rule description and the rule id
+  total     - the number of alerts matching the filters BEFORE the limit is
+              applied; data is the limited slice. Results are ordered by
+              severity descending then timestamp descending, so the HIGH
+              severity alerts sit at the top of the table.
+  src_ip    - taken from the event (data.win.eventdata.ipAddress), NOT from the
+              agent's address, so a remote attack and a local administrative
+              action are distinguishable. A local action with no address in the
+              event shows "-".
+
+--------------------------------------------------------------------------------
+A6. THE CUSTOM WAZUH RULES
+--------------------------------------------------------------------------------
+File: compose/config/custom-rules/xsiem-rules.xml
+Mounted read-only into the manager at /var/ossec/etc/rules/xsiem-rules.xml.
+The stock ruleset is NOT modified by this file.
+
+RULE 100100  level 12  frequency 8  timeframe 120
+  <if_matched_sid>60122</if_matched_sid>
+  <same_field>win.eventdata.ipAddress</same_field>
+  <description>XSIEM: Windows authentication failure burst (possible brute force)</description>
+  <options>no_full_log</options>
+  <group>authentication_failed,attack,brute_force,</group>
+  <mitre><id>T1110</id></mitre>
+
+  Why it exists: the XSIEM dashboard maps rule level to severity
+  (>=12 high, 7-11 medium, else low). With the stock ruleset a brute-force
+  burst only reaches level 5 ("Logon Failure - Unknown user or bad password",
+  rule 60122), so it would appear as LOW and the dashboard's high-severity path
+  - and with it the email alerting - would never fire. This rule adds a
+  companion HIGH severity alert; the original level 5 alert is still produced
+  and still indexed.
+
+  Why if_matched_sid 60122 and not 60105: 60105 is the PARENT of 60122. The
+  4625 event matches 60122, which consumes it, so 60105 is never the terminal
+  match, and a Wazuh frequency counter only increments for the rule that
+  actually matched. A counter on 60105 therefore stays at zero and the rule
+  never fires. Measured: 21 failed logons produced 21 x 60122 and 0 alerts for
+  the original rule. 60122 IS the terminal match, so counting on it works.
+  (The stock rule 60205 has the same defect for the same reason and has also
+  produced 0 alerts.)
+
+  Why <same_field> is that exact string: it is copied byte for byte from the
+  working stock rule 60204. Other spellings do not work - win.eventdata.
+  targetUserName and win.system.computer were both tried and never fired.
+
+  Why level 12 and not 10: Wazuh 4.9.2 keeps ONE composite frequency counter
+  per matched event stream, so every frequency rule counting the same 4625
+  events competes for it and only one can fire. With level 10 the contest was
+  non-deterministic (100100 won 7 of 8 bursts, 60204 won 1). With level 12 and
+  if_matched_sid 60122, 100100 won 8 of 8 consecutive bursts with 60204
+  scoring 0, and 60204 is additionally set to level 0 (see below) so the
+  contest cannot happen at all.
+
+RULE 100101  level 12
+  <if_sid>5712</if_sid>
+  <description>XSIEM: SSH brute force attempt detected</description>
+  <group>attack,authentication_failed,brute_force,</group>
+  <mitre><id>T1110</id></mitre>
+  A child of the stock rule 5712 ("sshd: brute force trying to get access to
+  the system", level 10), escalated to HIGH. It only fires for syslog-format
+  sshd messages: the Windows OpenSSH server writes to the OpenSSH/Operational
+  event channel instead, so on a Windows endpoint rule 100100 is the one to use.
+
+TWO PATCHED STOCK RULE FILES
+  compose/config/ruleset-patches/0955-WEF-baseline_rules.xml
+      rule 67027 "A process was created" (event 4688): level 3 -> level 0
+  compose/config/ruleset-patches/0580-win-security_rules.xml
+      rule 60204 "Multiple Windows Logon Failures": level 10 -> level 0
+  Each file differs from the stock Wazuh 4.9.2 file by exactly one line, and
+  each is bind-mounted over the original so a container recreate cannot lose
+  the patch.
+
+  Why the patch is needed at all: Wazuh 4.9.2 logs "WARNING: (7612): Rule ID
+  '67027' is duplicated. Only the first occurrence will be considered." The
+  stock ruleset is loaded first, so redefining an existing rule id in
+  /var/ossec/etc/rules is simply ignored - even when the redefinition repeats
+  the stock rule's matching conditions exactly. The only way to silence a stock
+  rule is to patch the ruleset file itself.
+
+  67027 at level 0 stops the process-creation flood (about 85 alerts per
+  minute) while the raw 4688 documents stay indexed for the Investigation
+  view. 60204 at level 0 removes the frequency-counter contest described above.
+
+--------------------------------------------------------------------------------
+A7. NEW FINDINGS AND CORRECTIONS
+--------------------------------------------------------------------------------
+These are additional to Sections 1-12. Corrections are listed first.
+
+CORRECTION 1 - the 60204/100100 contest was over-stated for the shipped rule.
+  The earlier "100100 loses one burst in five" measurement was taken while
+  100100 used <if_matched_group>authentication_failed</if_matched_group>. With
+  the shipped <if_matched_sid>60122</if_matched_sid> form, 100100 won 8 of 8
+  consecutive bursts with 60204 scoring 0, measured BEFORE 60204 was set to
+  level 0. Suppressing 60204 makes it deterministic as well.
+
+CORRECTION 2 - the 4625 rule id in the report was 60105; the terminal match is
+  60122. 60105 is the parent. Both are level 5 and both appear in the index;
+  60122 is the one a child rule must count on.
+
+CORRECTION 3 - a successful NETWORK logon (SMB or RDP) is event 4624, but the
+  alert that actually appears is rule 92652 / 92657, not rule 60106. 92651 is a
+  child of 60106 ("Windows Logon Success"), and a child consumes its parent's
+  alert, exactly as 60122 consumes 60105 for a failed logon. The same
+  parent/child pattern therefore applies to successful logons: 92652 "Successful
+  Remote Logon Detected - NTLM authentication, possible pass-the-hash attack"
+  (level 6) and its child 92657 "Possible RDP connection" (level 6). Rule 60106
+  is the interactive console path.
+
+FINDING 1 - the Wazuh 4.9.2 image ships an EXPIRED authd certificate.
+  The stock self-signed certificate in /var/ossec/etc/sslmanager.cert expired on
+  2025-11-05, so any agent trying to enrol on 1515 failed with "Problem with
+  certificate at depth 0" / "certificate has expired" and client.keys stayed
+  empty. Fixing it does not need the endpoint to change anything: the manager
+  can issue a replacement from the root CA that compose/deploy.sh already
+  generates, and the endpoint trusts that same CA. deploy.sh does this
+  automatically.
+
+FINDING 2 - a local rule file cannot override a stock rule in Wazuh 4.9.2.
+  See A6. The manager logs "Rule ID '67027' is duplicated. Only the first
+  occurrence will be considered."
+
+FINDING 3 - Wazuh keeps one composite frequency counter per matched event
+  stream, so several correlation rules counting the same events are mutually
+  exclusive and the winner depends on the level. This is the root cause of the
+  60204/100100 behaviour and is why 60204 is now level 0.
+
+FINDING 4 - src_ip must come from the event, not from the agent metadata. The
+  formatter used to read data.srcip, a key that does not exist in the indexed
+  document, and fell back to agent.ip - the address of the machine that
+  REPORTED the event. The real field is data.win.eventdata.ipAddress (lower
+  case "i"), which holds the address that ORIGINATED the event. The indexed
+  4625 document has no source address under data.win.system at all. A local
+  administrative action (rule 60154) has no address in the event and now
+  shows "-" rather than the agent's address, so local and remote are
+  distinguishable.
+
+FINDING 5 - a correlation alert's raw event lives in previous_output, not
+  full_log. Diffing a stored document that had a log against one that did not
+  showed the single decisive difference: Wazuh stores the body of an aggregated
+  correlation in previous_output (about 20 KB) and leaves full_log empty, while
+  a single-event correlation keeps full_log. The application only ever read
+  full_log, so every correlation alert came back with an empty log. The
+  formatter now falls back to previous_output, and the 500-character cap was
+  raised to 4000.
+
+FINDING 6 - the XSIEM API applied the severity and search filters after the
+  indexer had already sliced the result to `limit`, so ?limit=3&severity=medium
+  returned 0 while ?limit=1000 returned 30. The filters are now pushed into
+  the OpenSearch query, total is the count matching the filters before the
+  limit, and /api/stats agrees with /api/alerts?severity= exactly.
+
+FINDING 7 - the dashboard's System Status panel was three hardcoded strings
+  ("Wazuh Manager Online", "ELK Stack Degraded"). "Degraded" was a literal and
+  said nothing about the real state. The panel now renders the live values
+  from /health, including the real indexer cluster health, and the panel no
+  longer contains any hardcoded status text.
+
+FINDING 8 - the account lockout counter is cumulative across SMB, SSH and RDP
+  and across the 10-minute observation window, and while an account is locked
+  Windows OpenSSH resets the connection instead of refusing the password. That
+  reads like a network fault rather than a lockout, so the tool detects it and
+  reports it as its own state. The tool now defaults the burst to 8, refuses
+  more than 9 attempts without --i-know-this-locks, and prints a warning if
+  the account is already locked before it starts.
+
+FINDING 9 - Script Block Logging does not capture PowerShell started through
+  sshd on this endpoint. Rule 91813 fires for interactive sessions, but the
+  agent produced no 4104 document at all for SSH-spawned PowerShell, while the
+  newest 4104 in the index belongs to the interactive Windows session. The
+  channel works; the non-interactive session is the problem, so that payload
+  is operator-assisted.
+
+FINDING 10 - netexec's failed-authentication path is unusable against this
+  target: it reports "Connection Error: The NETBIOS connection with the remote
+  host timed out" instead of an authentication failure. smbclient and rpcclient
+  return a genuine NT_STATUS_LOGON_FAILURE. Failed-authentication payloads use
+  smbclient; netexec is used for successful authentication only.
+
+FINDING 11 - three PROBE alerts (rules 100205, 100207, 100210) remain in the
+  OpenSearch index. They were temporary diagnostic rules used to establish
+  finding 3. The rules are gone from the ruleset, but Wazuh alerts are
+  immutable once indexed, so those three documents stay until the index
+  lifecycle removes them. They are the only stray test data in the SIEM.
+
+END OF APPENDIX

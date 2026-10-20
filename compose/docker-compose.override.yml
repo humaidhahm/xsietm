@@ -1,0 +1,73 @@
+# XSIEM local-lab tuning for the Wazuh 4.9.2 single-node stack.
+#
+# This file is applied automatically by `docker compose` on top of the upstream
+# docker-compose.yml. The upstream file is left UNMODIFIED.
+#
+# Goals:
+#   1. Do not expose the web/API surfaces beyond this machine.
+#   2. Keep the agent-facing ports (1514/1515/514) reachable from the Windows
+#      host so a Wazuh agent on 192.168.49.1 can enrol and ship events.
+#   3. Cap container memory so the stack fits in the 7.5 GiB available to this VM.
+
+services:
+  wazuh.manager:
+    ports: !override
+      # Agent event ingestion  -> reachable from the Windows agent (192.168.49.1)
+      - "0.0.0.0:1514:1514"
+      # Agent enrolment (authd) -> reachable from the Windows agent
+      - "0.0.0.0:1515:1515"
+      # Syslog (udp)
+      - "0.0.0.0:514:514/udp"
+      # Wazuh REST API -> loopback only (the XSIEM backend talks to it locally)
+      - "127.0.0.1:55000:55000"
+    mem_limit: 1536m
+    mem_reservation: 512m
+    volumes:
+      # XSIEM custom escalation rules (additive; see config/custom-rules/xsiem-rules.xml)
+      - ./config/custom-rules/xsiem-rules.xml:/var/ossec/etc/rules/xsiem-rules.xml:ro
+      # authd TLS server certificate.
+      # The stock image ships a self-signed cert that expired 2025-11-05, which
+      # blocks agent enrolment ("Problem with certificate at depth 0" /
+      # "certificate has expired"). These are issued from the same root CA the
+      # Windows agent already trusts (root-ca.pem), so no Windows-side change
+      # is needed. Bind-mounted so a container/volume recreate cannot restore
+      # the expired certificate.
+      - ./config/wazuh_indexer_ssl_certs/manager-authd.pem:/var/ossec/etc/sslmanager.cert
+      - ./config/wazuh_indexer_ssl_certs/manager-authd-key.pem:/var/ossec/etc/sslmanager.key
+      # Ruleset patches: silence two stock rules by setting their level to 0.
+      #   67027 "A process was created" (4688)  - ~85 alerts/min of noise
+      #   60204 "Multiple Windows Logon Failures" - competes with the custom
+      #           rule 100100 for the single shared frequency counter
+      # The raw events are still indexed, so they remain available for the
+      # Investigation view. Wazuh 4.9.2 ignores a redefinition of an existing
+      # rule id ("Rule ID '67027' is duplicated. Only the first occurrence
+      # will be considered"), so the stock file itself has to be patched.
+      # Each patched file differs from the stock one by exactly one line.
+      - ./config/ruleset-patches/0955-WEF-baseline_rules.xml:/var/ossec/ruleset/rules/0955-WEF-baseline_rules.xml:ro
+      - ./config/ruleset-patches/0580-win-security_rules.xml:/var/ossec/ruleset/rules/0580-win-security_rules.xml:ro
+
+  wazuh.indexer:
+    ports: !override
+      # OpenSearch -> loopback only (the XSIEM backend queries it locally)
+      - "127.0.0.1:9200:9200"
+    environment: !override
+      - "OPENSEARCH_JAVA_OPTS=-Xms1g -Xmx1g"
+    mem_limit: 2560m
+    mem_reservation: 1024m
+
+  wazuh.dashboard:
+    ports: !override
+      # Wazuh Dashboard (OpenSearch Dashboards) -> loopback only
+      - "127.0.0.1:443:5601"
+    environment: !override
+      - INDEXER_USERNAME=${WAZUH_INDEXER_USER:-admin}
+      - INDEXER_PASSWORD=${WAZUH_INDEXER_PASSWORD:?WAZUH_INDEXER_PASSWORD is required}
+      - WAZUH_API_URL=https://wazuh.manager
+      - DASHBOARD_USERNAME=${WAZUH_DASHBOARD_USER:-kibanaserver}
+      - DASHBOARD_PASSWORD=${WAZUH_DASHBOARD_PASSWORD:?WAZUH_DASHBOARD_PASSWORD is required}
+      - API_USERNAME=${WAZUH_API_USER:-wazuh-wui}
+      - API_PASSWORD=${WAZUH_API_PASSWORD:?WAZUH_API_PASSWORD is required}
+      # Cap the Node.js heap so the dashboard fits in the VM's memory budget
+      - "NODE_OPTIONS=--max-old-space-size=512"
+    mem_limit: 1280m
+    mem_reservation: 384m
